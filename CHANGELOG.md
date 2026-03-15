@@ -5,7 +5,7 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-03-15
 
 ### Added
 - `--sandbox` flag for subprocess-isolated module execution (FE-05)
@@ -22,30 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `APCORE_AUTH_API_KEY` and `APCORE_CLI_SANDBOX` to README environment variables table
 - `--sandbox` to README module execution options table
 - CHANGELOG.md
-
-### Changed
-- AES-GCM wire format from `nonce + ciphertext + tag` to `nonce + tag + ciphertext` (spec-aligned, **breaking** for pre-existing encrypted configs)
-- AES-GCM implementation from high-level `AESGCM` API to low-level `Cipher(AES, GCM)` API for explicit tag control
-- ConfigEncryptor exception catching narrowed from bare `Exception` to `(InvalidTag, ValueError)`
-- Sandbox error type from `RuntimeError` to `ModuleExecutionError`
-- Sandbox catches `subprocess.TimeoutExpired` with formatted error message
-- Extensions directory missing now exits 47 immediately instead of deferring via null stubs
-- Removed `_NullRegistry` and `_NullExecutor` stub classes
-- AuthProvider `get_api_key()` uses direct `self._config.encryptor.retrieve()` instead of defensive `getattr`
-- Output formatter parameter names from `fmt` to `format` (3 functions)
-- Output formatter extension metadata reads from both `module_def.metadata` and `vars(module_def)`
-- `build_module_command` prefers `canonical_id` over `module_id`
-- `resolve_refs` called with explicit `max_depth=32`
-- `config.resolve()` called with `cli_flag="--extensions-dir"`
-- Error audit logging passes actual `merged` inputs instead of `{}`
-
-### Fixed
-- `UnboundLocalError` when `collect_input()` raises before `merged` is assigned
-- Removed stale fix-reference comments (`HIGH-1 fix`, `MED-1 fix`, `LOW-1 fix`)
-
-## [0.1.0] - 2026-03-14
-
-### Added
 - Core Dispatcher (FE-01): `LazyModuleGroup`, `build_module_command`, `collect_input`, `validate_module_id`
 - Schema Parser (FE-02): `schema_to_click_options`, `_map_type`, `_extract_help`, `reconvert_enum_values`
 - Ref Resolver (FE-02): `resolve_refs`, `_resolve_node` with `$ref`, `allOf`, `anyOf`, `oneOf` support
