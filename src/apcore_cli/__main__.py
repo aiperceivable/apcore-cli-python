@@ -36,13 +36,35 @@ def _extract_extensions_dir(argv: list[str] | None = None) -> str | None:
     return None
 
 
-def create_cli(extensions_dir: str | None = None) -> click.Group:
+def create_cli(extensions_dir: str | None = None, prog_name: str | None = None) -> click.Group:
     """Create the CLI application.
 
     Args:
         extensions_dir: Override for extensions directory.
                         When None, resolves via ConfigResolver (env/file/default).
+        prog_name: Name shown in help text and version output.
+                   Defaults to the basename of sys.argv[0], so downstream projects
+                   that install their own entry-point script get the correct name
+                   automatically (e.g. ``mycli`` instead of ``apcore-cli``).
     """
+    if prog_name is None:
+        prog_name = os.path.basename(sys.argv[0]) or "apcore-cli"
+
+    # Resolve CLI log level (3-tier precedence, evaluated before Click runs):
+    #   APCORE_CLI_LOGGING_LEVEL (CLI-specific) > APCORE_LOGGING_LEVEL (global) > WARNING
+    # The --log-level flag (parsed later) can further override at runtime.
+    _cli_level_str = os.environ.get("APCORE_CLI_LOGGING_LEVEL", "").upper()
+    _global_level_str = os.environ.get("APCORE_LOGGING_LEVEL", "").upper()
+    _active_level_str = _cli_level_str or _global_level_str
+    _default_level = getattr(logging, _active_level_str, logging.WARNING) if _active_level_str else logging.WARNING
+    logging.basicConfig(level=_default_level, format="%(levelname)s: %(message)s")
+    # basicConfig is a no-op if handlers already exist; always set the root level explicitly.
+    logging.getLogger().setLevel(_default_level)
+    # Silence noisy upstream apcore loggers unless the user requests verbose output.
+    # Always set explicitly so the level is deterministic regardless of prior state.
+    apcore_level = _default_level if _default_level <= logging.INFO else logging.ERROR
+    logging.getLogger("apcore").setLevel(apcore_level)
+
     if extensions_dir is not None:
         ext_dir = extensions_dir
     else:
@@ -97,12 +119,12 @@ def create_cli(extensions_dir: str | None = None) -> click.Group:
         cls=LazyModuleGroup,
         registry=registry,
         executor=executor,
-        name="apcore-cli",
+        name=prog_name,
         help="CLI adapter for the apcore module ecosystem.",
     )
     @click.version_option(
         version=__version__,
-        prog_name="apcore-cli",
+        prog_name=prog_name,
     )
     @click.option(
         "--extensions-dir",
@@ -113,11 +135,18 @@ def create_cli(extensions_dir: str | None = None) -> click.Group:
     @click.option(
         "--log-level",
         default=None,
-        type=click.Choice(["DEBUG", "INFO", "WARN", "ERROR"], case_sensitive=False),
-        help="Log level.",
+        type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+        help="Log verbosity. Overrides APCORE_CLI_LOGGING_LEVEL and APCORE_LOGGING_LEVEL env vars.",
     )
     @click.pass_context
     def cli(ctx: click.Context, extensions_dir_opt: str | None = None, log_level: str | None = None) -> None:
+        if log_level is not None:
+            # basicConfig() is a no-op once handlers exist; set level on the root logger directly.
+            level = getattr(logging, log_level.upper(), logging.WARNING)
+            logging.getLogger().setLevel(level)
+            # Keep apcore logger in sync: verbose when user asks for it, quiet otherwise.
+            apcore_level = level if level <= logging.INFO else logging.ERROR
+            logging.getLogger("apcore").setLevel(apcore_level)
         ctx.ensure_object(dict)
         ctx.obj["extensions_dir"] = ext_dir
 
@@ -125,16 +154,20 @@ def create_cli(extensions_dir: str | None = None) -> click.Group:
     register_discovery_commands(cli, registry)
 
     # Register shell integration commands
-    register_shell_commands(cli)
+    register_shell_commands(cli, prog_name=prog_name)
 
     return cli
 
 
-def main() -> None:
-    """Main entry point for apcore-cli."""
-    # Extract --extensions-dir from argv before Click parses
+def main(prog_name: str | None = None) -> None:
+    """Main entry point for apcore-cli.
+
+    Args:
+        prog_name: Override the program name shown in help/version output.
+                   When None, inferred from sys.argv[0] automatically.
+    """
     ext_dir = _extract_extensions_dir()
-    cli = create_cli(extensions_dir=ext_dir)
+    cli = create_cli(extensions_dir=ext_dir, prog_name=prog_name)
     cli(standalone_mode=True)
 
 

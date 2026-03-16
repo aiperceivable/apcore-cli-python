@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -35,7 +36,7 @@ class AuditLogger:
             "timestamp": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "user": self._get_user(),
             "module_id": module_id,
-            "input_hash": hashlib.sha256(json.dumps(input_data, sort_keys=True).encode()).hexdigest(),
+            "input_hash": self._hash_input(input_data),
             "status": status,
             "exit_code": exit_code,
             "duration_ms": duration_ms,
@@ -46,8 +47,21 @@ class AuditLogger:
         except OSError as e:
             logger.warning("Could not write audit log: %s", e)
 
+    def _hash_input(self, input_data: dict) -> str:
+        """Hash input with a random salt to prevent correlation across invocations."""
+        salt = secrets.token_bytes(16)
+        payload = json.dumps(input_data, sort_keys=True).encode()
+        return hashlib.sha256(salt + payload).hexdigest()
+
     def _get_user(self) -> str:
         try:
             return os.getlogin()
         except OSError:
-            return os.getenv("USER", os.getenv("USERNAME", "unknown"))
+            pass
+        try:
+            import pwd
+
+            return pwd.getpwuid(os.getuid()).pw_name
+        except (ImportError, KeyError, AttributeError):
+            pass
+        return os.getenv("USER", os.getenv("USERNAME", "unknown"))

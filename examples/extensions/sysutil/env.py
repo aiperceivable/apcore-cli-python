@@ -2,12 +2,12 @@
 
 import os
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Input(BaseModel):
-    name: str
-    default: str = ""
+    name: str = Field(..., description="Environment variable name to read")
+    default: str = Field("", description="Value to return if the variable is not set")
 
 
 class Output(BaseModel):

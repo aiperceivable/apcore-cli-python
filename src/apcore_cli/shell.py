@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import shlex
 import sys
 from datetime import date
 
@@ -9,17 +11,22 @@ import click
 
 from apcore_cli import __version__
 
-# Shell snippet for dynamic module ID completion (shared across shells)
-_MODULE_LIST_CMD = (
-    "apcore-cli list --format json 2>/dev/null"
-    ' | python3 -c "import sys,json;'
-    "[print(m['id']) for m in json.load(sys.stdin)]\" 2>/dev/null"
-)
+
+def _make_function_name(prog_name: str) -> str:
+    """Convert a prog_name like 'my-tool' to a valid shell identifier '_my_tool'."""
+    return "_" + re.sub(r"[^a-zA-Z0-9]", "_", prog_name)
 
 
-def _generate_bash_completion() -> str:
+def _generate_bash_completion(prog_name: str) -> str:
+    fn = _make_function_name(prog_name)
+    quoted = shlex.quote(prog_name)
+    module_list_cmd = (
+        f"{quoted} list --format json 2>/dev/null"
+        ' | python3 -c "import sys,json;'
+        "[print(m['id']) for m in json.load(sys.stdin)]\" 2>/dev/null"
+    )
     return (
-        "_apcore_cli_completion() {\n"
+        f"{fn}() {{\n"
         "    local cur prev opts\n"
         "    COMPREPLY=()\n"
         '    cur="${COMP_WORDS[COMP_CWORD]}"\n'
@@ -31,26 +38,33 @@ def _generate_bash_completion() -> str:
         "        return 0\n"
         "    fi\n"
         "\n"
-        '    if [[ "${COMP_WORDS[1]}" == "exec" && ${COMP_CWORD} -eq 2 ]]; then\n'
-        f"        local modules=$({_MODULE_LIST_CMD})\n"
+        f'    if [[ "${{COMP_WORDS[1]}}" == "exec" && ${{COMP_CWORD}} -eq 2 ]]; then\n'
+        f"        local modules=$({module_list_cmd})\n"
         '        COMPREPLY=( $(compgen -W "${modules}" -- ${cur}) )\n'
         "        return 0\n"
         "    fi\n"
         "}\n"
-        "complete -F _apcore_cli_completion apcore-cli\n"
+        f"complete -F {fn} {quoted}\n"
     )
 
 
-def _generate_zsh_completion() -> str:
+def _generate_zsh_completion(prog_name: str) -> str:
+    fn = _make_function_name(prog_name)
+    quoted = shlex.quote(prog_name)
+    module_list_cmd = (
+        f"{quoted} list --format json 2>/dev/null"
+        ' | python3 -c "import sys,json;'
+        "[print(m['id']) for m in json.load(sys.stdin)]\" 2>/dev/null"
+    )
     return (
-        "#compdef apcore-cli\n"
+        f"#compdef {prog_name}\n"
         "\n"
-        "_apcore_cli() {\n"
+        f"{fn}() {{\n"
         "    local -a commands\n"
         "    commands=(\n"
         "        'exec:Execute an apcore module'\n"
         "        'list:List available modules'\n"
-        "        'describe:Show module details'\n"
+        "        'describe:Show module metadata and schema'\n"
         "        'completion:Generate shell completion script'\n"
         "        'man:Generate man page'\n"
         "    )\n"
@@ -61,13 +75,13 @@ def _generate_zsh_completion() -> str:
         "\n"
         '    case "$state" in\n'
         "        command)\n"
-        "            _describe -t commands 'apcore-cli commands' commands\n"
+        f"            _describe -t commands '{prog_name} commands' commands\n"
         "            ;;\n"
         "        args)\n"
         '            case "${words[1]}" in\n'
         "                exec)\n"
         "                    local modules\n"
-        f"                    modules=($({_MODULE_LIST_CMD}))\n"
+        f"                    modules=($({module_list_cmd}))\n"
         "                    compadd -a modules\n"
         "                    ;;\n"
         "            esac\n"
@@ -75,92 +89,171 @@ def _generate_zsh_completion() -> str:
         "    esac\n"
         "}\n"
         "\n"
-        "compdef _apcore_cli apcore-cli\n"
+        f"compdef {fn} {quoted}\n"
     )
 
 
-def _generate_fish_completion() -> str:
-    # Build the dynamic completion command for fish (needs escaped quotes)
-    fish_dyn = _MODULE_LIST_CMD.replace('"', '\\"').replace("'", "\\'")
+def _generate_fish_completion(prog_name: str) -> str:
+    quoted = shlex.quote(prog_name)
+    module_list_cmd = (
+        f"{quoted} list --format json 2>/dev/null"
+        ' | python3 -c \\"import sys,json;'
+        "[print(m['id']) for m in json.load(sys.stdin)]\\\" 2>/dev/null"
+    )
     return (
-        "# Fish completions for apcore-cli\n"
-        'complete -c apcore-cli -n "__fish_use_subcommand"'
+        f"# Fish completions for {prog_name}\n"
+        f'complete -c {quoted} -n "__fish_use_subcommand"'
         ' -a exec -d "Execute an apcore module"\n'
-        'complete -c apcore-cli -n "__fish_use_subcommand"'
+        f'complete -c {quoted} -n "__fish_use_subcommand"'
         ' -a list -d "List available modules"\n'
-        'complete -c apcore-cli -n "__fish_use_subcommand"'
-        ' -a describe -d "Show module details"\n'
-        'complete -c apcore-cli -n "__fish_use_subcommand"'
+        f'complete -c {quoted} -n "__fish_use_subcommand"'
+        ' -a describe -d "Show module metadata and schema"\n'
+        f'complete -c {quoted} -n "__fish_use_subcommand"'
         ' -a completion -d "Generate shell completion script"\n'
-        'complete -c apcore-cli -n "__fish_use_subcommand"'
+        f'complete -c {quoted} -n "__fish_use_subcommand"'
         ' -a man -d "Generate man page"\n'
         "\n"
-        'complete -c apcore-cli -n "__fish_seen_subcommand_from exec"'
-        f' -a "({fish_dyn})"\n'
+        f'complete -c {quoted} -n "__fish_seen_subcommand_from exec"'
+        f' -a "({module_list_cmd})"\n'
     )
 
 
-def _generate_man_page(command_name: str, command: click.Command | None, cli: click.Group) -> str:
+def _build_synopsis(command: click.Command | None, prog_name: str, command_name: str) -> str:
+    """Build a synopsis line reflecting actual options and arguments."""
+    if command is None:
+        return f"\\fB{prog_name} {command_name}\\fR [OPTIONS]"
+
+    parts = [f"\\fB{prog_name} {command_name}\\fR"]
+    for param in command.params:
+        if isinstance(param, click.Option):
+            flag = param.opts[0]
+            if param.is_flag:
+                parts.append(f"[{flag}]")
+            elif param.required:
+                type_upper = (param.type.name if hasattr(param.type, "name") else "VALUE").upper()
+                parts.append(f"{flag} \\fI{type_upper}\\fR")
+            else:
+                type_upper = (param.type.name if hasattr(param.type, "name") else "VALUE").upper()
+                parts.append(f"[{flag} \\fI{type_upper}\\fR]")
+        elif isinstance(param, click.Argument):
+            meta = param.human_readable_name.upper()
+            if param.required:
+                parts.append(f"\\fI{meta}\\fR")
+            else:
+                parts.append(f"[\\fI{meta}\\fR]")
+    return " ".join(parts)
+
+
+def _generate_man_page(command_name: str, command: click.Command | None, prog_name: str) -> str:
     """Generate a roff-formatted man page for a command."""
     today = date.today().strftime("%Y-%m-%d")
-    cmd_upper = command_name.upper()
+    title = f"{prog_name}-{command_name}".upper()
+    pkg_label = f"{prog_name} {__version__}"
+    manual_label = f"{prog_name} Manual"
 
-    sections = []
-    sections.append(f'.TH "APCORE-CLI-{cmd_upper}" "1" "{today}" "apcore-cli {__version__}" "apcore-cli Manual"')
+    sections: list[str] = []
+    sections.append(f'.TH "{title}" "1" "{today}" "{pkg_label}" "{manual_label}"')
+
     sections.append(".SH NAME")
-    if command:
-        desc = command.help or command_name
-        sections.append(f"apcore-cli-{command_name} \\- {desc}")
-    else:
-        sections.append(f"apcore-cli-{command_name}")
+    desc = (command.help or command_name) if command else command_name
+    # Collapse multi-line help to a single short phrase for NAME
+    name_desc = desc.split("\n")[0].rstrip(".")
+    sections.append(f"{prog_name}-{command_name} \\- {name_desc}")
 
     sections.append(".SH SYNOPSIS")
-    sections.append(f"\\fBapcore-cli {command_name}\\fR [OPTIONS] [ARGUMENTS]")
+    sections.append(_build_synopsis(command, prog_name, command_name))
 
     if command and command.help:
         sections.append(".SH DESCRIPTION")
-        sections.append(command.help)
+        # Escape roff special chars in description
+        sections.append(command.help.replace("\\", "\\\\").replace("-", "\\-"))
 
-    if command and command.params:
+    if command and any(isinstance(p, click.Option) for p in command.params):
         sections.append(".SH OPTIONS")
         for param in command.params:
             if isinstance(param, click.Option):
-                flag = ", ".join(param.opts + getattr(param, "secondary_opts", []))
-                type_name = param.type.name if hasattr(param.type, "name") else "VALUE"
+                flag = ", ".join(param.opts)
+                type_name = param.type.name.upper() if hasattr(param.type, "name") else "VALUE"
                 sections.append(".TP")
-                sections.append(f"\\fB{flag}\\fR \\fI{type_name}\\fR")
+                if param.is_flag:
+                    sections.append(f"\\fB{flag}\\fR")
+                else:
+                    sections.append(f"\\fB{flag}\\fR \\fI{type_name}\\fR")
                 if param.help:
                     sections.append(param.help)
+                if param.default is not None and not param.is_flag:
+                    sections.append(f"Default: {param.default}.")
+
+    sections.append(".SH ENVIRONMENT")
+    sections.append(".TP")
+    sections.append("\\fBAPCORE_EXTENSIONS_ROOT\\fR")
+    sections.append("Path to the apcore extensions directory. Overrides the default \\fI./extensions\\fR.")
+    sections.append(".TP")
+    sections.append("\\fBAPCORE_CLI_AUTO_APPROVE\\fR")
+    sections.append(
+        "Set to \\fB1\\fR to bypass approval prompts for modules that require human-in-the-loop confirmation."
+    )
+    sections.append(".TP")
+    sections.append("\\fBAPCORE_CLI_LOGGING_LEVEL\\fR")
+    sections.append(
+        "CLI-specific logging verbosity. One of: DEBUG, INFO, WARNING, ERROR. "
+        "Takes priority over \\fBAPCORE_LOGGING_LEVEL\\fR. Default: WARNING."
+    )
+    sections.append(".TP")
+    sections.append("\\fBAPCORE_LOGGING_LEVEL\\fR")
+    sections.append(
+        "Global apcore logging verbosity. One of: DEBUG, INFO, WARNING, ERROR. "
+        "Used as fallback when \\fBAPCORE_CLI_LOGGING_LEVEL\\fR is not set. Default: WARNING."
+    )
 
     sections.append(".SH EXIT CODES")
-    sections.append(".TP\n\\fB0\\fR\nSuccess.")
-    sections.append(".TP\n\\fB1\\fR\nModule execution error.")
-    sections.append(".TP\n\\fB2\\fR\nInvalid CLI input.")
-    sections.append(".TP\n\\fB44\\fR\nModule not found, disabled, or load error.")
-    sections.append(".TP\n\\fB45\\fR\nSchema validation error.")
-    sections.append(".TP\n\\fB46\\fR\nApproval denied or timed out.")
-    sections.append(".TP\n\\fB47\\fR\nConfiguration error.")
-    sections.append(".TP\n\\fB48\\fR\nSchema circular reference.")
-    sections.append(".TP\n\\fB77\\fR\nACL denied.")
-    sections.append(".TP\n\\fB130\\fR\nExecution cancelled (SIGINT).")
+    exit_codes = [
+        ("0", "Success."),
+        ("1", "Module execution error."),
+        ("2", "Invalid CLI input or missing argument."),
+        ("44", "Module not found, disabled, or failed to load."),
+        ("45", "Input failed JSON Schema validation."),
+        ("46", "Approval denied, timed out, or no interactive terminal available."),
+        ("47", "Configuration error (extensions directory not found or unreadable)."),
+        ("48", "Schema contains a circular \\fB$ref\\fR."),
+        ("77", "ACL denied — insufficient permissions for this module."),
+        ("130", "Execution cancelled by user (SIGINT / Ctrl\\-C)."),
+    ]
+    for code, meaning in exit_codes:
+        sections.append(f".TP\n\\fB{code}\\fR\n{meaning}")
 
     sections.append(".SH SEE ALSO")
-    sections.append("\\fBapcore-cli\\fR(1), \\fBapcore-cli-list\\fR(1), \\fBapcore-cli-describe\\fR(1)")
+    see_also = [
+        f"\\fB{prog_name}\\fR(1)",
+        f"\\fB{prog_name}\\-list\\fR(1)",
+        f"\\fB{prog_name}\\-describe\\fR(1)",
+        f"\\fB{prog_name}\\-completion\\fR(1)",
+    ]
+    sections.append(", ".join(see_also))
 
     return "\n".join(sections)
 
 
-def register_shell_commands(cli: click.Group) -> None:
+def register_shell_commands(cli: click.Group, prog_name: str = "apcore-cli") -> None:
     """Register completion and man commands."""
 
     @cli.command("completion")
     @click.argument("shell", type=click.Choice(["bash", "zsh", "fish"]))
-    def completion_cmd(shell: str) -> None:
-        """Generate shell completion script."""
+    @click.pass_context
+    def completion_cmd(ctx: click.Context, shell: str) -> None:
+        """Generate a shell completion script and print it to stdout.
+
+        \b
+        Install (add to your shell profile):
+          bash:  eval "$(PROG completion bash)"   or source <(PROG completion bash)
+          zsh:   eval "$(PROG completion zsh)"    or source <(PROG completion zsh)
+          fish:  PROG completion fish | source
+        """
+        resolved = ctx.find_root().info_name or prog_name
         generators = {
-            "bash": _generate_bash_completion,
-            "zsh": _generate_zsh_completion,
-            "fish": _generate_fish_completion,
+            "bash": lambda: _generate_bash_completion(resolved),
+            "zsh": lambda: _generate_zsh_completion(resolved),
+            "fish": lambda: _generate_fish_completion(resolved),
         }
         click.echo(generators[shell]())
 
@@ -168,18 +261,30 @@ def register_shell_commands(cli: click.Group) -> None:
     @click.argument("command")
     @click.pass_context
     def man_cmd(ctx: click.Context, command: str) -> None:
-        """Generate man page for a command."""
+        """Generate a roff man page for COMMAND and print it to stdout.
+
+        \b
+        View immediately:
+          PROG man list | man -
+          PROG man describe | col -bx | less
+
+        Install system-wide:
+          PROG man list > /usr/local/share/man/man1/PROG-list.1
+          mandb   # (Linux)   or   /usr/libexec/makewhatis   # (macOS)
+        """
         parent = ctx.parent
         if parent is None:
             click.echo(f"Error: Unknown command '{command}'.", err=True)
             sys.exit(2)
 
+        resolved_prog = ctx.find_root().info_name or prog_name
         parent_group = parent.command
         cmd = parent_group.commands.get(command) if isinstance(parent_group, click.Group) else None
 
-        if cmd is None and command not in ("exec", "list", "describe", "completion", "man"):
+        known_builtins = {"list", "describe", "completion", "man"}
+        if cmd is None and command not in known_builtins:
             click.echo(f"Error: Unknown command '{command}'.", err=True)
             sys.exit(2)
 
-        roff = _generate_man_page(command, cmd, cli)
+        roff = _generate_man_page(command, cmd, resolved_prog)
         click.echo(roff)

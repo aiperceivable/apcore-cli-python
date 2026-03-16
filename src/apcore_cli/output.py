@@ -179,10 +179,24 @@ def format_module_detail(module_def: ModuleDescriptor, format: str) -> None:
 
 
 def format_exec_result(result: Any, format: str | None = None) -> None:
-    """Format and print module execution result."""
+    """Format and print module execution result.
+
+    Uses ``resolve_format(format)`` for TTY-adaptive defaulting:
+    - json (or non-TTY default): JSON-pretty-printed output.
+    - table: Rich table for dict results; falls back to JSON for lists,
+      plain string for scalars.
+    """
     if result is None:
         return
-    if isinstance(result, dict | list):
+    effective = resolve_format(format)
+    if effective == "table" and isinstance(result, dict):
+        table = Table()
+        table.add_column("Key")
+        table.add_column("Value")
+        for k, v in result.items():
+            table.add_row(str(k), str(v))
+        Console().print(table)
+    elif isinstance(result, dict | list):
         click.echo(json.dumps(result, indent=2, default=str))
     elif isinstance(result, str):
         click.echo(result)

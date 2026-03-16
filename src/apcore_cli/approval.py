@@ -26,7 +26,7 @@ def _get_annotation(annotations: Any, key: str, default: Any = None) -> Any:
     return getattr(annotations, key, default)
 
 
-def check_approval(module_def: Any, auto_approve: bool, ctx: click.Context) -> None:
+def check_approval(module_def: Any, auto_approve: bool) -> None:
     """Check if module requires approval and handle accordingly.
 
     Returns None if approved (or approval not required).
@@ -113,23 +113,25 @@ def _prompt_unix(module_id: str, timeout: int) -> None:
 
     try:
         approved = click.confirm("Proceed?", default=False)
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
-
-        if approved:
-            logger.info("User approved execution of module '%s'.", module_id)
-            return
-        else:
-            logger.warning("Approval rejected by user for module '%s'.", module_id)
-            click.echo("Error: Approval denied.", err=True)
-            sys.exit(46)
     except ApprovalTimeoutError:
-        signal.signal(signal.SIGALRM, old_handler)
         logger.warning("Approval timed out after %ds for module '%s'.", timeout, module_id)
         click.echo(
             f"Error: Approval prompt timed out after {timeout} seconds.",
             err=True,
         )
+        sys.exit(46)
+    finally:
+        # Always cancel the alarm and restore the previous handler, regardless of
+        # how the block exits (normal return, sys.exit, KeyboardInterrupt, etc.).
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+    if approved:
+        logger.info("User approved execution of module '%s'.", module_id)
+        return
+    else:
+        logger.warning("Approval rejected by user for module '%s'.", module_id)
+        click.echo("Error: Approval denied.", err=True)
         sys.exit(46)
 
 

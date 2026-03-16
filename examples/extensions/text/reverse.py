@@ -1,10 +1,10 @@
 """text.reverse — Reverse a string."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Input(BaseModel):
-    text: str
+    text: str = Field(..., description="Input string to reverse")
 
 
 class Output(BaseModel):

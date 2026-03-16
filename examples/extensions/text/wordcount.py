@@ -1,10 +1,10 @@
 """text.wordcount — Count words, characters, and lines."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Input(BaseModel):
-    text: str
+    text: str = Field(..., description="Input text to analyse")
 
 
 class Output(BaseModel):

@@ -255,7 +255,7 @@ class TestMainEntryPoint:
         from apcore_cli.__main__ import create_cli
 
         runner = CliRunner()
-        result = runner.invoke(create_cli(extensions_dir=str(tmp_path)), ["--version"])
+        result = runner.invoke(create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli"), ["--version"])
         assert result.exit_code == 0
         assert "apcore-cli" in result.output
         assert "0.1.0" in result.output
@@ -282,6 +282,76 @@ class TestMainEntryPoint:
             ["--help"],
         )
         assert result.exit_code == 0
+
+    def test_log_level_flag_takes_effect(self, tmp_path, monkeypatch):
+        import logging
+
+        from click.testing import CliRunner
+
+        from apcore_cli.__main__ import create_cli
+
+        original_level = logging.getLogger().level
+        try:
+            runner = CliRunner()
+            cli = create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli")
+            # Use a real subcommand — --help is an eager flag that exits before the callback runs
+            result = runner.invoke(cli, ["--log-level", "DEBUG", "completion", "bash"])
+            assert result.exit_code == 0
+            # After invoking with --log-level DEBUG the root logger level should be DEBUG
+            assert logging.getLogger().level == logging.DEBUG
+        finally:
+            logging.getLogger().setLevel(original_level)
+
+    def test_apcore_logging_level_env_var(self, tmp_path, monkeypatch):
+        import logging
+
+        from click.testing import CliRunner
+
+        monkeypatch.setenv("APCORE_LOGGING_LEVEL", "INFO")
+        from apcore_cli.__main__ import create_cli
+
+        runner = CliRunner()
+        cli = create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli")
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        # INFO level means apcore logger should NOT be silenced to ERROR
+        assert logging.getLogger("apcore").level != logging.ERROR
+
+    def test_cli_logging_level_takes_priority_over_global(self, tmp_path, monkeypatch):
+        import logging
+
+        from click.testing import CliRunner
+
+        from apcore_cli.__main__ import create_cli
+
+        original_level = logging.getLogger().level
+        try:
+            # Global says ERROR, CLI-specific says DEBUG — CLI-specific must win
+            monkeypatch.setenv("APCORE_LOGGING_LEVEL", "ERROR")
+            monkeypatch.setenv("APCORE_CLI_LOGGING_LEVEL", "DEBUG")
+            cli = create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli")
+            runner = CliRunner()
+            result = runner.invoke(cli, ["completion", "bash"])
+            assert result.exit_code == 0
+            assert logging.getLogger().level == logging.DEBUG
+        finally:
+            logging.getLogger().setLevel(original_level)
+
+    def test_cli_logging_level_fallback_to_global(self, tmp_path, monkeypatch):
+        import logging
+
+        from click.testing import CliRunner
+
+        from apcore_cli.__main__ import create_cli
+
+        # CLI-specific not set — must fall back to global
+        monkeypatch.delenv("APCORE_CLI_LOGGING_LEVEL", raising=False)
+        monkeypatch.setenv("APCORE_LOGGING_LEVEL", "INFO")
+        cli = create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli")
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert logging.getLogger("apcore").level != logging.ERROR
 
 
 class TestExecCallback:

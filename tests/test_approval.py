@@ -27,58 +27,50 @@ class TestCheckApprovalBypass:
 
     def test_no_annotations_skips(self):
         m = _make_module(requires_approval=None)
-        ctx = MagicMock()
-        check_approval(m, auto_approve=False, ctx=ctx)  # No error
+        check_approval(m, auto_approve=False)  # No error
 
     def test_annotations_not_dict_skips(self):
         m = MagicMock()
         m.module_id = "test"
         m.annotations = "not a dict"
-        ctx = MagicMock()
-        check_approval(m, auto_approve=False, ctx=ctx)  # No error
+        check_approval(m, auto_approve=False)  # No error
 
     def test_requires_approval_false_skips(self):
         m = _make_module(requires_approval=False)
-        ctx = MagicMock()
-        check_approval(m, auto_approve=False, ctx=ctx)  # No error
+        check_approval(m, auto_approve=False)  # No error
 
     def test_requires_approval_string_true_skips(self):
         m = _make_module(requires_approval="true")
-        ctx = MagicMock()
-        check_approval(m, auto_approve=False, ctx=ctx)  # No error (not bool True)
+        check_approval(m, auto_approve=False)  # No error (not bool True)
 
     def test_bypass_yes_flag(self, caplog):
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with caplog.at_level(logging.INFO, logger="apcore_cli.approval"):
-            check_approval(m, auto_approve=True, ctx=ctx)
+            check_approval(m, auto_approve=True)
         assert "bypassed via --yes flag" in caplog.text
 
     def test_bypass_env_var(self, monkeypatch, caplog):
         monkeypatch.setenv("APCORE_CLI_AUTO_APPROVE", "1")
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with caplog.at_level(logging.INFO, logger="apcore_cli.approval"):
-            check_approval(m, auto_approve=False, ctx=ctx)
+            check_approval(m, auto_approve=False)
         assert "bypassed via APCORE_CLI_AUTO_APPROVE" in caplog.text
 
     def test_env_var_not_one_warns(self, monkeypatch, caplog):
         monkeypatch.setenv("APCORE_CLI_AUTO_APPROVE", "true")
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with caplog.at_level(logging.WARNING, logger="apcore_cli.approval"), pytest.raises(SystemExit) as exc_info:
-            check_approval(m, auto_approve=False, ctx=ctx)
+            check_approval(m, auto_approve=False)
         assert exc_info.value.code == 46
         assert "expected '1'" in caplog.text
 
     def test_yes_flag_priority_over_env(self, monkeypatch, caplog):
         monkeypatch.setenv("APCORE_CLI_AUTO_APPROVE", "1")
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with caplog.at_level(logging.INFO, logger="apcore_cli.approval"):
-            check_approval(m, auto_approve=True, ctx=ctx)
+            check_approval(m, auto_approve=True)
         assert "bypassed via --yes flag" in caplog.text
 
 
@@ -89,16 +81,14 @@ class TestNonTTYRejection:
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)
         monkeypatch.delenv("APCORE_CLI_AUTO_APPROVE", raising=False)
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with pytest.raises(SystemExit) as exc_info:
-            check_approval(m, auto_approve=False, ctx=ctx)
+            check_approval(m, auto_approve=False)
         assert exc_info.value.code == 46
 
     def test_non_tty_with_yes_flag_proceeds(self, monkeypatch):
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
-        check_approval(m, auto_approve=True, ctx=ctx)  # No error
+        check_approval(m, auto_approve=True)  # No error
 
 
 class TestTTYPrompt:
@@ -108,28 +98,25 @@ class TestTTYPrompt:
         monkeypatch.setattr("sys.stdin.isatty", lambda: True)
         monkeypatch.delenv("APCORE_CLI_AUTO_APPROVE", raising=False)
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with (
             patch("apcore_cli.approval.click.confirm", return_value=True),
             caplog.at_level(logging.INFO, logger="apcore_cli.approval"),
         ):
-            check_approval(m, auto_approve=False, ctx=ctx)
+            check_approval(m, auto_approve=False)
         assert "approved" in caplog.text
 
     def test_tty_user_denies(self, monkeypatch):
         monkeypatch.setattr("sys.stdin.isatty", lambda: True)
         monkeypatch.delenv("APCORE_CLI_AUTO_APPROVE", raising=False)
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with patch("apcore_cli.approval.click.confirm", return_value=False), pytest.raises(SystemExit) as exc_info:
-            check_approval(m, auto_approve=False, ctx=ctx)
+            check_approval(m, auto_approve=False)
         assert exc_info.value.code == 46
 
     def test_tty_timeout(self, monkeypatch):
         monkeypatch.setattr("sys.stdin.isatty", lambda: True)
         monkeypatch.delenv("APCORE_CLI_AUTO_APPROVE", raising=False)
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with (
             patch(
                 "apcore_cli.approval.click.confirm",
@@ -137,7 +124,7 @@ class TestTTYPrompt:
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
-            check_approval(m, auto_approve=False, ctx=ctx)
+            check_approval(m, auto_approve=False)
         assert exc_info.value.code == 46
 
     def test_custom_approval_message(self, monkeypatch, capsys):
@@ -147,9 +134,8 @@ class TestTTYPrompt:
             requires_approval=True,
             approval_message="DANGER: This will delete everything!",
         )
-        ctx = MagicMock()
         with patch("apcore_cli.approval.click.confirm", return_value=True):
-            check_approval(m, auto_approve=False, ctx=ctx)
+            check_approval(m, auto_approve=False)
         err = capsys.readouterr().err
         assert "DANGER: This will delete everything!" in err
 
@@ -157,9 +143,8 @@ class TestTTYPrompt:
         monkeypatch.setattr("sys.stdin.isatty", lambda: True)
         monkeypatch.delenv("APCORE_CLI_AUTO_APPROVE", raising=False)
         m = _make_module(requires_approval=True)
-        ctx = MagicMock()
         with patch("apcore_cli.approval.click.confirm", return_value=True):
-            check_approval(m, auto_approve=False, ctx=ctx)
+            check_approval(m, auto_approve=False)
         err = capsys.readouterr().err
         assert "requires approval to execute" in err
 

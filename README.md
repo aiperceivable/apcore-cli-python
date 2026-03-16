@@ -8,7 +8,7 @@ Terminal adapter for apcore. Execute AI-Perceivable modules from the command lin
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-244%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-261%20passed-brightgreen.svg)]()
 
 | | |
 |---|---|
@@ -170,7 +170,7 @@ apcore-cli [OPTIONS] COMMAND [ARGS]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--extensions-dir` | `./extensions` | Path to apcore extensions directory |
-| `--log-level` | `INFO` | Logging: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `--log-level` | `WARNING` | Logging: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `--version` | | Show version and exit |
 | `--help` | | Show help and exit |
 
@@ -227,7 +227,8 @@ apcore-cli uses a 4-tier configuration precedence:
 |----------|-------------|---------|
 | `APCORE_EXTENSIONS_ROOT` | Path to extensions directory | `./extensions` |
 | `APCORE_CLI_AUTO_APPROVE` | Set to `1` to bypass all approval prompts | *(unset)* |
-| `APCORE_LOGGING_LEVEL` | Log level | `INFO` |
+| `APCORE_CLI_LOGGING_LEVEL` | CLI-specific log level (takes priority over `APCORE_LOGGING_LEVEL`) | `WARNING` |
+| `APCORE_LOGGING_LEVEL` | Global apcore log level (fallback when `APCORE_CLI_LOGGING_LEVEL` is unset) | `WARNING` |
 | `APCORE_AUTH_API_KEY` | API key for remote registry authentication | *(unset)* |
 | `APCORE_CLI_SANDBOX` | Set to `1` to enable subprocess sandboxing | *(unset)* |
 
@@ -266,7 +267,7 @@ sandbox:
 | `module_id` (`math.add`) | Command name (`apcore-cli math.add`) |
 | `description` | `--help` text |
 | `input_schema.properties` | CLI flags (`--a`, `--b`) |
-| `input_schema.required` | Required flag enforcement |
+| `input_schema.required` | Validated post-collection via `jsonschema.validate()` (required fields shown as `[required]` in `--help`) |
 | `annotations.requires_approval` | HITL approval prompt |
 
 ### Architecture
@@ -377,7 +378,7 @@ apcore-cli --extensions-dir ./extensions greet.hello --name Alice --greeting Hi
 git clone https://github.com/aipartnerup/apcore-cli-python.git
 cd apcore-cli-python
 pip install -e ".[dev]"
-pytest                           # 244 tests
+pytest                           # 261 tests
 pytest --cov                     # with coverage report
 bash examples/run_examples.sh   # run all examples
 ```

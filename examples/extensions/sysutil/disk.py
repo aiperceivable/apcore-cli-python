@@ -2,11 +2,11 @@
 
 import os
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Input(BaseModel):
-    path: str = "/"
+    path: str = Field("/", description="Filesystem path to check (default: /)")
 
 
 class Output(BaseModel):

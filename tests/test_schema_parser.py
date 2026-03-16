@@ -91,7 +91,11 @@ class TestSchemaToClickOptions:
             "required": ["name"],
         }
         options = schema_to_click_options(schema)
-        assert options[0].required is True
+        # required=False at the Click level — required validation is done by jsonschema
+        # in the callback after merging STDIN + CLI flags (so --input - works correctly).
+        assert options[0].required is False
+        # Help text must still signal the field is required for user clarity.
+        assert "[required]" in (options[0].help or "")
 
     def test_schema_to_options_default(self):
         schema = {

@@ -32,8 +32,8 @@ BUILTIN_COMMANDS = ["exec", "list", "describe", "completion", "man"]
 _audit_logger: AuditLogger | None = None
 
 
-def set_audit_logger(audit_logger: AuditLogger) -> None:
-    """Set the global audit logger instance."""
+def set_audit_logger(audit_logger: AuditLogger | None) -> None:
+    """Set the global audit logger instance. Pass None to clear."""
     global _audit_logger
     _audit_logger = audit_logger
 
@@ -131,7 +131,8 @@ def build_module_command(module_def: ModuleDescriptor, executor: Executor) -> cl
             resolved_schema = resolve_refs(input_schema, max_depth=32, module_id=module_id)
         except SystemExit:
             raise
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to resolve $refs in schema for '%s', using raw schema: %s", module_id, e)
             resolved_schema = input_schema
     else:
         resolved_schema = input_schema
@@ -166,7 +167,7 @@ def build_module_command(module_def: ModuleDescriptor, executor: Executor) -> cl
                     sys.exit(45)
 
             # 4. Check approval gate
-            check_approval(module_def, auto_approve, click.get_current_context())
+            check_approval(module_def, auto_approve)
 
             # 5. Execute with timing (optionally sandboxed)
             audit_start = time.monotonic()
@@ -245,6 +246,17 @@ def build_module_command(module_def: ModuleDescriptor, executor: Executor) -> cl
         )
     )
 
+    # Guard: schema property names must not collide with built-in option names.
+    _reserved = {"input", "yes", "large_input", "format", "sandbox"}
+    for opt in schema_options:
+        if opt.name in _reserved:
+            click.echo(
+                f"Error: Module '{module_id}' schema property '{opt.name}' conflicts "
+                f"with a reserved CLI option name. Rename the property.",
+                err=True,
+            )
+            sys.exit(2)
+
     # Add schema-generated options
     cmd.params.extend(schema_options)
 
@@ -290,7 +302,7 @@ def collect_input(
             )
             sys.exit(2)
 
-        if not raw or raw_size == 0:
+        if not raw:
             stdin_data: dict[str, Any] = {}
         else:
             try:

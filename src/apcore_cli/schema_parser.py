@@ -93,7 +93,11 @@ def schema_to_click_options(schema: dict) -> list[click.Option]:
 
         click_type = _map_type(prop_name, prop_schema)
         is_required = prop_name in required_list
-        help_text = _extract_help(prop_schema)
+        _help_base = _extract_help(prop_schema)
+        # Append [required] to help text for user clarity; do NOT set required=True
+        # at the Click level because that would block --input - (STDIN) from working.
+        # Schema-level required validation happens in the callback via jsonschema.validate().
+        help_text = ((_help_base + " ") if _help_base else "") + "[required]" if is_required else _help_base
         default = prop_schema.get("default", None)
 
         if click_type is _BOOLEAN_FLAG:
@@ -116,7 +120,7 @@ def schema_to_click_options(schema: dict) -> list[click.Option]:
                 option = click.Option(
                     [flag_name],
                     type=click.STRING,
-                    required=is_required,
+                    required=False,
                     default=default,
                     help=help_text,
                 )
@@ -125,7 +129,7 @@ def schema_to_click_options(schema: dict) -> list[click.Option]:
                 option = click.Option(
                     [flag_name],
                     type=click.Choice(string_values),
-                    required=is_required,
+                    required=False,
                     default=str(default) if default is not None else None,
                     help=help_text,
                 )
@@ -135,7 +139,7 @@ def schema_to_click_options(schema: dict) -> list[click.Option]:
             option = click.Option(
                 [flag_name],
                 type=click_type,
-                required=is_required,
+                required=False,
                 default=default,
                 help=help_text,
             )

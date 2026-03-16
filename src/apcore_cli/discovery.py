@@ -37,6 +37,7 @@ def register_discovery_commands(cli: click.Group, registry: Any) -> None:
         help="Output format. Default: table (TTY) or json (non-TTY).",
     )
     def list_cmd(tag: tuple[str, ...], output_format: str | None) -> None:
+        """List available modules in the registry."""
         # Validate tag format
         for t in tag:
             _validate_tag(t)
@@ -64,6 +65,7 @@ def register_discovery_commands(cli: click.Group, registry: Any) -> None:
         help="Output format. Default: table (TTY) or json (non-TTY).",
     )
     def describe_cmd(module_id: str, output_format: str | None) -> None:
+        """Show metadata, schema, and annotations for a module."""
         validate_module_id(module_id)
 
         module_def = registry.get_definition(module_id)

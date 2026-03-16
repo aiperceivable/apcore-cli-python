@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -38,13 +39,14 @@ class TestAuditLogger:
         logger = AuditLogger(path=log_path)
         logger.log_execution("mod", {"a": 1}, "success", 0, 10)
         logger.log_execution("mod", {"a": 1}, "success", 0, 10)
-        logger.log_execution("mod", {"a": 2}, "success", 0, 10)
         lines = log_path.read_text().strip().split("\n")
         hash1 = json.loads(lines[0])["input_hash"]
         hash2 = json.loads(lines[1])["input_hash"]
-        hash3 = json.loads(lines[2])["input_hash"]
-        assert hash1 == hash2  # Same input → same hash
-        assert hash1 != hash3  # Different input → different hash
+        # Each invocation uses a random salt — same input must NOT produce the same hash
+        assert hash1 != hash2
+        # Hash must be a valid SHA-256 hex digest (64 chars)
+        assert len(hash1) == 64
+        assert all(c in "0123456789abcdef" for c in hash1)
 
     def test_log_write_failure_warns(self, tmp_path, caplog):
         log_path = Path("/nonexistent/readonly/audit.jsonl")
@@ -54,11 +56,28 @@ class TestAuditLogger:
             logger.log_execution("mod", {}, "success", 0, 10)
         assert "Could not write audit log" in caplog.text
 
-    def test_get_user_fallback(self, monkeypatch):
-        monkeypatch.setenv("USER", "testuser")
-        logger = AuditLogger.__new__(AuditLogger)
+    def test_get_user_fallback_pwd(self, monkeypatch):
+        # When getlogin() fails, should fall back to pwd.getpwuid()
+        import pwd as _pwd
+
+        audit_logger = AuditLogger.__new__(AuditLogger)
         with patch("os.getlogin", side_effect=OSError):
-            result = logger._get_user()
+            result = audit_logger._get_user()
+        # pwd.getpwuid should return the real username on Unix
+        expected = _pwd.getpwuid(os.getuid()).pw_name
+        assert result == expected
+
+    def test_get_user_fallback_env(self, monkeypatch):
+        # When both getlogin() and pwd fail, fall back to USER env var
+        import pwd as _pwd
+
+        monkeypatch.setenv("USER", "testuser")
+        audit_logger = AuditLogger.__new__(AuditLogger)
+        with (
+            patch("os.getlogin", side_effect=OSError),
+            patch.object(_pwd, "getpwuid", side_effect=KeyError),
+        ):
+            result = audit_logger._get_user()
         assert result == "testuser"
 
     def test_log_entry_format(self, tmp_path):

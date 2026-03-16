@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock
 
 import click
+import pytest
 from click.testing import CliRunner
 
 from apcore_cli.cli import LazyModuleGroup, build_module_command, set_audit_logger
@@ -127,6 +128,31 @@ class TestSchemaToFlagsIntegration:
         assert inputs["a"] == 99  # CLI overrides STDIN
         assert inputs["b"] == 10
 
+    def test_builtin_name_collision_exits_2(self):
+        # A schema property named 'format' collides with the built-in --format option
+        module_def = _make_module_def(
+            input_schema={
+                "properties": {"format": {"type": "string"}},
+                "required": [],
+            }
+        )
+        executor = MagicMock()
+        with pytest.raises(SystemExit) as exc_info:
+            build_module_command(module_def, executor)
+        assert exc_info.value.code == 2
+
+    def test_exec_result_table_format(self):
+        module_def = _make_module_def()
+        executor = MagicMock()
+        executor.call.return_value = {"sum": 42}
+        cmd = build_module_command(module_def, executor)
+        runner = CliRunner()
+        result = runner.invoke(cmd, ["--a", "20", "--b", "22", "--format", "table"])
+        assert result.exit_code == 0
+        # Table format renders key/value rows
+        assert "sum" in result.output
+        assert "42" in result.output
+
 
 class TestApprovalIntegration:
     """HIGH-2 fix: approval gate called before execution."""
@@ -163,25 +189,24 @@ class TestAuditLogIntegration:
         log_path = tmp_path / "audit.jsonl"
         audit = AuditLogger(path=log_path)
         set_audit_logger(audit)
+        try:
+            module_def = _make_module_def(input_schema={"properties": {}, "required": []})
+            executor = MagicMock()
+            executor.call.return_value = {"sum": 15}
+            cmd = build_module_command(module_def, executor)
 
-        module_def = _make_module_def(input_schema={"properties": {}, "required": []})
-        executor = MagicMock()
-        executor.call.return_value = {"sum": 15}
-        cmd = build_module_command(module_def, executor)
+            runner = CliRunner()
+            result = runner.invoke(cmd, [])
+            assert result.exit_code == 0
 
-        runner = CliRunner()
-        result = runner.invoke(cmd, [])
-        assert result.exit_code == 0
-
-        entries = log_path.read_text().strip().split("\n")
-        entry = json.loads(entries[-1])
-        assert entry["module_id"] == "math.add"
-        assert entry["status"] == "success"
-        assert entry["exit_code"] == 0
-        assert entry["duration_ms"] >= 0
-
-        # Cleanup
-        set_audit_logger(None)
+            entries = log_path.read_text().strip().split("\n")
+            entry = json.loads(entries[-1])
+            assert entry["module_id"] == "math.add"
+            assert entry["status"] == "success"
+            assert entry["exit_code"] == 0
+            assert entry["duration_ms"] >= 0
+        finally:
+            set_audit_logger(None)
 
     def test_audit_log_on_error(self, tmp_path):
         from apcore.errors import ModuleExecuteError
@@ -191,21 +216,21 @@ class TestAuditLogIntegration:
         log_path = tmp_path / "audit.jsonl"
         audit = AuditLogger(path=log_path)
         set_audit_logger(audit)
+        try:
+            module_def = _make_module_def(input_schema={"properties": {}, "required": []})
+            executor = MagicMock()
+            executor.call.side_effect = ModuleExecuteError(module_id="math.add")
+            cmd = build_module_command(module_def, executor)
 
-        module_def = _make_module_def(input_schema={"properties": {}, "required": []})
-        executor = MagicMock()
-        executor.call.side_effect = ModuleExecuteError(module_id="math.add")
-        cmd = build_module_command(module_def, executor)
+            runner = CliRunner()
+            result = runner.invoke(cmd, [])
+            assert result.exit_code == 1
 
-        runner = CliRunner()
-        result = runner.invoke(cmd, [])
-        assert result.exit_code == 1
-
-        entries = log_path.read_text().strip().split("\n")
-        entry = json.loads(entries[-1])
-        assert entry["status"] == "error"
-
-        set_audit_logger(None)
+            entries = log_path.read_text().strip().split("\n")
+            entry = json.loads(entries[-1])
+            assert entry["status"] == "error"
+        finally:
+            set_audit_logger(None)
 
 
 class TestDiscoveryWiring:
@@ -253,7 +278,7 @@ class TestShellWiring:
         runner = CliRunner()
         result = runner.invoke(cli, ["completion", "bash"])
         assert result.exit_code == 0
-        assert "complete -F _apcore_cli_completion apcore-cli" in result.output
+        assert "complete -F _apcore_cli apcore-cli" in result.output
 
     def test_man_via_full_cli(self):
         cli, _ = _make_cli_group([])

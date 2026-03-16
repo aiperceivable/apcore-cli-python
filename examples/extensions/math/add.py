@@ -1,11 +1,11 @@
 """math.add — Add two numbers."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Input(BaseModel):
-    a: int
-    b: int
+    a: int = Field(..., description="First operand")
+    b: int = Field(..., description="Second operand")
 
 
 class Output(BaseModel):

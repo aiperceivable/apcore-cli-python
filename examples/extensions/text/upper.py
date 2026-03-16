@@ -1,10 +1,10 @@
 """text.upper — Convert text to uppercase."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Input(BaseModel):
-    text: str
+    text: str = Field(..., description="Input string to convert")
 
 
 class Output(BaseModel):
