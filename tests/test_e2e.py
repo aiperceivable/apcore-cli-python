@@ -464,5 +464,7 @@ class TestSubprocessInvocation:
             text=True,
             timeout=10,
         )
+        from apcore_cli import __version__
+
         assert result.returncode == 0
-        assert "0.1.0" in result.stdout
+        assert __version__ in result.stdout

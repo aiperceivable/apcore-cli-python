@@ -257,8 +257,10 @@ class TestMainEntryPoint:
         runner = CliRunner()
         result = runner.invoke(create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli"), ["--version"])
         assert result.exit_code == 0
+        from apcore_cli import __version__
+
         assert "apcore-cli" in result.output
-        assert "0.1.0" in result.output
+        assert __version__ in result.output
 
     def test_main_extensions_dir_not_found(self):
         import pytest
