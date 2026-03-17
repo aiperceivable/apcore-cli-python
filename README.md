@@ -383,41 +383,6 @@ pytest --cov                     # with coverage report
 bash examples/run_examples.sh   # run all examples
 ```
 
-### Project Structure
-
-```
-src/apcore_cli/
-├── __init__.py              # Package version
-├── __main__.py              # CLI entry point, wiring
-├── cli.py                   # LazyModuleGroup, build_module_command, collect_input
-├── config.py                # ConfigResolver (4-tier precedence)
-├── schema_parser.py         # JSON Schema -> Click options
-├── ref_resolver.py          # $ref / allOf / anyOf / oneOf resolution
-├── output.py                # TTY-adaptive output formatting (rich)
-├── discovery.py             # list / describe commands
-├── approval.py              # HITL approval gate with timeout
-├── shell.py                 # bash/zsh/fish completion + man pages
-├── _sandbox_runner.py       # Subprocess entry point for sandboxed execution
-└── security/
-    ├── __init__.py           # Exports
-    ├── auth.py               # API key authentication
-    ├── config_encryptor.py   # Keyring + AES-256-GCM encrypted config
-    ├── audit.py              # JSON Lines audit logging
-    └── sandbox.py            # Subprocess-based execution isolation
-
-examples/
-├── run_examples.sh          # Run all examples end-to-end
-└── extensions/
-    ├── math/                # math.add, math.multiply
-    ├── text/                # text.upper, text.reverse, text.wordcount
-    └── sysutil/             # sysutil.info, sysutil.env, sysutil.disk
-
-planning/                    # Implementation plans (TDD task breakdowns)
-├── overview.md
-├── state.json
-└── *.md                     # Per-feature plans
-```
-
 ## License
 
 Apache-2.0
