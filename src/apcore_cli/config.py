@@ -18,7 +18,7 @@ class ConfigResolver:
 
     DEFAULTS: dict[str, Any] = {
         "extensions.root": "./extensions",
-        "logging.level": "INFO",
+        "logging.level": "WARNING",
         "sandbox.enabled": False,
         "cli.stdin_buffer_limit": 10_485_760,  # 10 MB
         "cli.auto_approve": False,
