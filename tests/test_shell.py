@@ -7,6 +7,8 @@ from apcore_cli.shell import (
     _generate_bash_completion,
     _generate_fish_completion,
     _generate_zsh_completion,
+    build_program_man_page,
+    configure_man_help,
     register_shell_commands,
 )
 
@@ -231,3 +233,105 @@ class TestManCommand:
         assert "SYNOPSIS" in result.output
         # Should reflect the actual --tag option, not generic [ARGUMENTS]
         assert "--tag" in result.output
+
+
+class TestBuildProgramManPage:
+    def test_generates_roff_with_th_header(self):
+        @click.group()
+        def cli():
+            pass
+
+        @cli.command()
+        @click.option("--name", help="Your name")
+        def hello(name):
+            pass
+
+        roff = build_program_man_page(cli, "test-cli", "1.0.0")
+        assert '.TH "TEST-CLI"' in roff
+        assert ".SH COMMANDS" in roff
+        assert "hello" in roff
+
+    def test_includes_nested_subcommands(self):
+        @click.group()
+        def cli():
+            pass
+
+        @cli.group()
+        def grp():
+            pass
+
+        @grp.command()
+        @click.option("--flag", is_flag=True, help="A flag")
+        def sub(flag):
+            pass
+
+        roff = build_program_man_page(cli, "mycli", "1.0.0")
+        assert "mycli grp sub" in roff
+
+    def test_includes_standard_sections(self):
+        @click.group()
+        def cli():
+            """My test CLI."""
+
+        roff = build_program_man_page(cli, "test-cli", "1.0.0")
+        assert ".SH NAME" in roff
+        assert ".SH SYNOPSIS" in roff
+        assert ".SH DESCRIPTION" in roff
+        assert ".SH ENVIRONMENT" in roff
+        assert ".SH EXIT CODES" in roff
+        assert ".SH SEE ALSO" in roff
+
+    def test_uses_custom_description(self):
+        @click.group()
+        def cli():
+            pass
+
+        roff = build_program_man_page(cli, "test-cli", "1.0.0", description="Custom desc")
+        assert "Custom desc" in roff
+
+    def test_includes_command_options(self):
+        @click.group()
+        def cli():
+            pass
+
+        @cli.command()
+        @click.option("--output", "-o", help="Output file")
+        def build(output):
+            pass
+
+        roff = build_program_man_page(cli, "test-cli", "1.0.0")
+        assert "Output file" in roff
+
+    def test_skips_help_command(self):
+        @click.group()
+        def cli():
+            pass
+
+        @cli.command()
+        def help():
+            pass
+
+        roff = build_program_man_page(cli, "test-cli", "1.0.0")
+        # "help" should not appear in the COMMANDS section as a listed command
+        assert "test\\-cli help" not in roff
+
+
+class TestConfigureManHelp:
+    def test_adds_hidden_man_option(self):
+        @click.group()
+        def cli():
+            pass
+
+        configure_man_help(cli, "test-cli", "1.0.0")
+        man_params = [p for p in cli.params if p.name == "man"]
+        assert len(man_params) == 1
+        assert man_params[0].hidden is True
+
+    def test_man_option_is_flag(self):
+        @click.group()
+        def cli():
+            pass
+
+        configure_man_help(cli, "test-cli", "1.0.0")
+        man_params = [p for p in cli.params if p.name == "man"]
+        assert man_params[0].is_flag is True

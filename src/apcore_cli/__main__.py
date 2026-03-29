@@ -9,7 +9,7 @@ import sys
 import click
 
 from apcore_cli import __version__
-from apcore_cli.cli import GroupedModuleGroup, set_audit_logger
+from apcore_cli.cli import GroupedModuleGroup, set_audit_logger, set_verbose_help
 from apcore_cli.config import ConfigResolver
 from apcore_cli.discovery import register_discovery_commands
 from apcore_cli.security.audit import AuditLogger
@@ -50,6 +50,12 @@ def _extract_binding_path(argv: list[str] | None = None) -> str | None:
     return _extract_argv_option(argv, "--binding")
 
 
+def _has_verbose_flag(argv: list[str] | None = None) -> bool:
+    """Check if --verbose is present in argv (pre-parse, before Click)."""
+    args = argv if argv is not None else sys.argv[1:]
+    return "--verbose" in args
+
+
 def create_cli(
     extensions_dir: str | None = None,
     prog_name: str | None = None,
@@ -74,6 +80,11 @@ def create_cli(
     """
     if prog_name is None:
         prog_name = os.path.basename(sys.argv[0]) or "apcore-cli"
+
+    # Pre-parse --verbose before Click runs so build_module_command knows
+    # whether to hide built-in options.
+    verbose = _has_verbose_flag()
+    set_verbose_help(verbose)
 
     # Resolve CLI log level (3-tier precedence, evaluated before Click runs):
     #   APCORE_CLI_LOGGING_LEVEL (CLI-specific) > APCORE_LOGGING_LEVEL (global) > WARNING
@@ -115,7 +126,7 @@ def create_cli(
 
     if ext_dir_missing:
         click.echo(
-            f"Error: Extensions directory not found: '{ext_dir}'. " "Set APCORE_EXTENSIONS_ROOT or verify the path.",
+            f"Error: Extensions directory not found: '{ext_dir}'. Set APCORE_EXTENSIONS_ROOT or verify the path.",
             err=True,
         )
         sys.exit(EXIT_CONFIG_NOT_FOUND)
@@ -212,6 +223,13 @@ def create_cli(
         type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
         help="Log verbosity. Overrides APCORE_CLI_LOGGING_LEVEL and APCORE_LOGGING_LEVEL env vars.",
     )
+    @click.option(
+        "--verbose",
+        "verbose_help",
+        is_flag=True,
+        default=False,
+        help="Show all options in help output (including built-in apcore options).",
+    )
     @click.pass_context
     def cli(
         ctx: click.Context,
@@ -219,6 +237,7 @@ def create_cli(
         commands_dir_opt: str | None = None,
         binding_opt: str | None = None,
         log_level: str | None = None,
+        verbose_help: bool = False,
     ) -> None:
         if log_level is not None:
             # basicConfig() is a no-op once handlers exist; set level on the root logger directly.
@@ -229,6 +248,7 @@ def create_cli(
             logging.getLogger("apcore").setLevel(apcore_level)
         ctx.ensure_object(dict)
         ctx.obj["extensions_dir"] = ext_dir
+        ctx.obj["verbose_help"] = verbose_help
 
     # Register discovery commands
     register_discovery_commands(cli, registry)

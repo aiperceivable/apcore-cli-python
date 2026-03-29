@@ -32,6 +32,33 @@ BUILTIN_COMMANDS = ["completion", "describe", "exec", "init", "list", "man"]
 # Module-level audit logger, set during CLI init
 _audit_logger: AuditLogger | None = None
 
+# Module-level verbose help flag, set during CLI init
+_verbose_help: bool = False
+
+
+def set_verbose_help(verbose: bool) -> None:
+    """Set the verbose help flag. When False, built-in options are hidden."""
+    global _verbose_help
+    _verbose_help = verbose
+
+
+# Module-level docs URL, set by downstream projects
+_docs_url: str | None = None
+
+
+def set_docs_url(url: str | None) -> None:
+    """Set the base URL for online documentation links in help and man pages.
+
+    Pass None to disable. Command-level help appends ``/commands/{name}``
+    automatically.
+
+    Example::
+
+        set_docs_url("https://docs.apcore.dev/cli")
+    """
+    global _docs_url
+    _docs_url = url
+
 
 def set_audit_logger(audit_logger: AuditLogger | None) -> None:
     """Set the global audit logger instance. Pass None to clear."""
@@ -452,18 +479,27 @@ def build_module_command(
             sys.exit(exit_code)
 
     # Build the command with schema-generated options + built-in options
+    _epilog_parts: list[str] = []
+    if not _verbose_help:
+        _epilog_parts.append("Use --verbose to show all options (including built-in apcore options).")
+    if _docs_url:
+        _epilog_parts.append(f"Docs: {_docs_url}/commands/{effective_cmd_name}")
+    _epilog = "\n".join(_epilog_parts) if _epilog_parts else None
     cmd = click.Command(
         name=effective_cmd_name,
         help=cmd_help,
         callback=callback,
+        epilog=_epilog,
     )
 
-    # Add built-in options
+    # Add built-in options (hidden unless --verbose is passed with --help)
+    _hide = not _verbose_help
     cmd.params.append(
         click.Option(
             ["--input"],
             default=None,
-            help="Read input from file or STDIN ('-').",
+            help="Read JSON input from a file path, or use '-' to read from stdin pipe.",
+            hidden=_hide,
         )
     )
     cmd.params.append(
@@ -471,7 +507,8 @@ def build_module_command(
             ["--yes", "-y"],
             is_flag=True,
             default=False,
-            help="Bypass approval prompts.",
+            help="Skip interactive approval prompts (for scripts and CI).",
+            hidden=_hide,
         )
     )
     cmd.params.append(
@@ -479,7 +516,8 @@ def build_module_command(
             ["--large-input"],
             is_flag=True,
             default=False,
-            help="Allow STDIN input larger than 10MB.",
+            help="Allow stdin input larger than 10MB (default limit protects against accidental pipes).",
+            hidden=_hide,
         )
     )
     cmd.params.append(
@@ -487,20 +525,23 @@ def build_module_command(
             ["--format"],
             type=click.Choice(["json", "table"]),
             default=None,
-            help="Output format.",
+            help="Set output format: 'json' for machine-readable, 'table' for human-readable.",
+            hidden=_hide,
         )
     )
+    # --sandbox is always hidden (not yet implemented)
     cmd.params.append(
         click.Option(
             ["--sandbox"],
             is_flag=True,
             default=False,
-            help="Run module in subprocess sandbox.",
+            help="Run module in an isolated subprocess with restricted filesystem and env access.",
+            hidden=True,
         )
     )
 
     # Guard: schema property names must not collide with built-in option names.
-    _reserved = {"input", "yes", "large_input", "format", "sandbox"}
+    _reserved = {"input", "yes", "large_input", "format", "sandbox", "verbose"}
     for opt in schema_options:
         if opt.name in _reserved:
             click.echo(

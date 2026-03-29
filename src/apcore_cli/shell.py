@@ -339,6 +339,187 @@ def _generate_man_page(command_name: str, command: click.Command | None, prog_na
     return "\n".join(sections)
 
 
+def _roff_escape(s: str) -> str:
+    """Escape a string for roff output."""
+    return s.replace("\\", "\\\\").replace("-", "\\-").replace("'", "\\(aq")
+
+
+def build_program_man_page(
+    cli: click.Group,
+    prog_name: str,
+    version: str,
+    description: str | None = None,
+    docs_url: str | None = None,
+) -> str:
+    """Build a complete roff man page for the entire CLI program.
+
+    Covers all registered commands including downstream business commands
+    injected via GroupedModuleGroup.
+    """
+    today = date.today().isoformat()
+    desc = description or cli.help or f"{prog_name} CLI"
+    s: list[str] = []
+
+    s.append(f'.TH "{prog_name.upper()}" "1" "{today}" "{prog_name} {version}" "{prog_name} Manual"')
+
+    s.append(".SH NAME")
+    s.append(f"{prog_name} \\- {_roff_escape(desc)}")
+
+    s.append(".SH SYNOPSIS")
+    s.append(f"\\fB{prog_name}\\fR [\\fIglobal\\-options\\fR] \\fIcommand\\fR [\\fIcommand\\-options\\fR]")
+
+    s.append(".SH DESCRIPTION")
+    s.append(_roff_escape(desc))
+
+    # Global options
+    ctx = click.Context(cli, info_name=prog_name)
+    params = cli.get_params(ctx)
+    visible_params = [p for p in params if not getattr(p, "hidden", False) and p.name not in ("help", "version", "man")]
+    if visible_params:
+        s.append(".SH GLOBAL OPTIONS")
+        for p in visible_params:
+            record = p.get_help_record(ctx)
+            if record:
+                s.append(".TP")
+                s.append(f"\\fB{_roff_escape(record[0])}\\fR")
+                s.append(_roff_escape(record[1]))
+
+    # Commands
+    cmd_names = cli.list_commands(ctx)
+    if cmd_names:
+        s.append(".SH COMMANDS")
+        for name in sorted(cmd_names):
+            if name == "help":
+                continue
+            cmd = cli.get_command(ctx, name)
+            if cmd is None:
+                continue
+
+            cmd_desc = cmd.get_short_help_str() if cmd else ""
+            s.append(".TP")
+            s.append(f"\\fB{prog_name} {_roff_escape(name)}\\fR")
+            if cmd_desc:
+                s.append(_roff_escape(cmd_desc))
+
+            # Command options
+            sub_ctx = click.Context(cmd, info_name=name, parent=ctx)
+            sub_params = [
+                p for p in cmd.get_params(sub_ctx) if not getattr(p, "hidden", False) and p.name not in ("help",)
+            ]
+            for p in sub_params:
+                record = p.get_help_record(sub_ctx)
+                if record:
+                    s.append(".RS")
+                    s.append(".TP")
+                    s.append(f"\\fB{_roff_escape(record[0])}\\fR")
+                    s.append(_roff_escape(record[1]))
+                    s.append(".RE")
+
+            # Nested subcommands (groups)
+            if isinstance(cmd, click.Group):
+                sub_names = cmd.list_commands(sub_ctx)
+                for sub_name in sorted(sub_names):
+                    if sub_name == "help":
+                        continue
+                    sub_cmd = cmd.get_command(sub_ctx, sub_name)
+                    if sub_cmd is None:
+                        continue
+                    sub_desc = sub_cmd.get_short_help_str() if sub_cmd else ""
+                    s.append(".TP")
+                    s.append(f"\\fB{prog_name} {_roff_escape(name)} {_roff_escape(sub_name)}\\fR")
+                    if sub_desc:
+                        s.append(_roff_escape(sub_desc))
+                    nested_ctx = click.Context(sub_cmd, info_name=sub_name, parent=sub_ctx)
+                    nested_params = [
+                        p
+                        for p in sub_cmd.get_params(nested_ctx)
+                        if not getattr(p, "hidden", False) and p.name not in ("help",)
+                    ]
+                    for p in nested_params:
+                        record = p.get_help_record(nested_ctx)
+                        if record:
+                            s.append(".RS")
+                            s.append(".TP")
+                            s.append(f"\\fB{_roff_escape(record[0])}\\fR")
+                            s.append(_roff_escape(record[1]))
+                            s.append(".RE")
+
+    # Environment
+    s.append(".SH ENVIRONMENT")
+    s.append(".TP")
+    s.append("\\fBAPCORE_EXTENSIONS_ROOT\\fR")
+    s.append("Path to the apcore extensions directory.")
+    s.append(".TP")
+    s.append("\\fBAPCORE_CLI_AUTO_APPROVE\\fR")
+    s.append("Set to \\fB1\\fR to bypass approval prompts.")
+    s.append(".TP")
+    s.append("\\fBAPCORE_CLI_LOGGING_LEVEL\\fR")
+    s.append("CLI\\-specific logging verbosity (DEBUG|INFO|WARNING|ERROR).")
+
+    # Exit codes
+    s.append(".SH EXIT CODES")
+    codes = [
+        ("0", "Success."),
+        ("1", "Module execution error."),
+        ("2", "Invalid input."),
+        ("44", "Module not found."),
+        ("45", "Schema validation error."),
+        ("46", "Approval denied or timed out."),
+        ("47", "Configuration error."),
+        ("77", "ACL denied."),
+        ("130", "Cancelled by user (SIGINT)."),
+    ]
+    for code, meaning in codes:
+        s.append(f".TP\n\\fB{code}\\fR\n{meaning}")
+
+    s.append(".SH SEE ALSO")
+    s.append(f"\\fB{prog_name} \\-\\-help \\-\\-verbose\\fR for full option list.")
+    if docs_url:
+        s.append(f".PP\nFull documentation at \\fI{_roff_escape(docs_url)}\\fR")
+
+    return "\n".join(s)
+
+
+def configure_man_help(
+    cli: click.Group,
+    prog_name: str,
+    version: str,
+    description: str | None = None,
+    docs_url: str | None = None,
+) -> None:
+    """Configure --help --man support on a Click CLI group.
+
+    When --man is passed with --help, outputs a complete roff man page
+    covering all registered commands. Downstream projects call this once
+    to get man page generation for free.
+
+    .. note::
+        Call this **after** all commands are registered on ``cli``.
+        The argv pre-parse triggers immediate man page generation, so
+        commands added later will not appear in the output.
+
+    Usage:
+        configure_man_help(cli, "reach", "0.2.0", "ReachForge", "https://reachforge.dev/docs")
+    """
+    # Add --man as a hidden Click option
+    cli.params.append(
+        click.Option(
+            ["--man"],
+            is_flag=True,
+            default=False,
+            hidden=True,
+            help="Output man page in roff format (use with --help).",
+        )
+    )
+
+    # Pre-parse: if both --help and --man in argv, generate man page and exit
+    args = sys.argv[1:]
+    if "--man" in args and ("--help" in args or "-h" in args):
+        roff = build_program_man_page(cli, prog_name, version, description, docs_url)
+        click.echo(roff)
+        sys.exit(0)
+
+
 def register_shell_commands(cli: click.Group, prog_name: str = "apcore-cli") -> None:
     """Register completion and man commands."""
 

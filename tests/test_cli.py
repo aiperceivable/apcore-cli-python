@@ -880,3 +880,56 @@ class TestGroupedE2E:
         group = self._make_e2e_group()
         result = CliRunner().invoke(group, ["product", "nonexistent"])
         assert result.exit_code == 2
+
+
+class TestVerboseHelp:
+    """Tests for --verbose help flag controlling built-in option visibility."""
+
+    def test_builtin_options_hidden_by_default(self):
+        """Built-in options are hidden from help by default."""
+        from apcore_cli import cli as cli_mod
+
+        cli_mod._verbose_help = False
+        try:
+            module_def = _make_mock_module_def()
+            cmd = build_module_command(module_def, _make_mock_executor())
+            hidden_names = [p.name for p in cmd.params if getattr(p, "hidden", False)]
+            assert "input" in hidden_names
+            assert "yes" in hidden_names
+            assert "large_input" in hidden_names
+            assert "format" in hidden_names
+            assert "sandbox" in hidden_names
+        finally:
+            cli_mod._verbose_help = False
+
+    def test_builtin_options_shown_when_verbose(self):
+        """Built-in options are visible when verbose help is enabled."""
+        from apcore_cli import cli as cli_mod
+
+        cli_mod._verbose_help = True
+        try:
+            module_def = _make_mock_module_def()
+            cmd = build_module_command(module_def, _make_mock_executor())
+            hidden_names = [p.name for p in cmd.params if getattr(p, "hidden", False)]
+            assert "input" not in hidden_names
+            assert "yes" not in hidden_names
+            assert "large_input" not in hidden_names
+            assert "format" not in hidden_names
+            # sandbox is always hidden (not yet implemented)
+            assert "sandbox" in hidden_names
+        finally:
+            cli_mod._verbose_help = False
+
+    def test_set_verbose_help_function(self):
+        """set_verbose_help correctly sets the module-level flag."""
+        from apcore_cli import cli as cli_mod
+        from apcore_cli.cli import set_verbose_help
+
+        original = cli_mod._verbose_help
+        try:
+            set_verbose_help(True)
+            assert cli_mod._verbose_help is True
+            set_verbose_help(False)
+            assert cli_mod._verbose_help is False
+        finally:
+            cli_mod._verbose_help = original

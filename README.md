@@ -204,6 +204,8 @@ apcore-cli [OPTIONS] COMMAND [ARGS]
 | `--log-level` | `WARNING` | Logging: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `--version` | | Show version and exit |
 | `--help` | | Show help and exit |
+| `--verbose` | | Show hidden built-in options in `--help` output |
+| `--man` | | Print man page to stdout (use with `--help`) |
 
 ### Built-in Commands
 
@@ -216,7 +218,7 @@ apcore-cli [OPTIONS] COMMAND [ARGS]
 
 ### Module Execution Options
 
-When executing a module (e.g. `apcore-cli math.add`), these built-in options are always available:
+When executing a module (e.g. `apcore-cli math.add`), these built-in options are available (hidden by default; pass `--help --verbose` to display them):
 
 | Option | Description |
 |--------|-------------|
@@ -224,7 +226,7 @@ When executing a module (e.g. `apcore-cli math.add`), these built-in options are
 | `--yes` / `-y` | Bypass approval prompts |
 | `--large-input` | Allow STDIN input larger than 10MB |
 | `--format` | Output format: `json` or `table` |
-| `--sandbox` | Run module in subprocess sandbox |
+| `--sandbox` | Run module in subprocess sandbox *(not yet implemented)* |
 
 Schema-generated flags (e.g. `--a`, `--b`) are added automatically from the module's `input_schema`.
 
@@ -291,7 +293,8 @@ cli:
 - **Schema validation** -- inputs validated against JSON Schema before execution, with `$ref`/`allOf`/`anyOf`/`oneOf` resolution
 - **Security** -- API key auth (keyring + AES-256-GCM), append-only audit logging, subprocess sandboxing
 - **Shell completions** -- `apcore-cli completion bash|zsh|fish` generates completion scripts with dynamic module ID completion
-- **Man pages** -- `apcore-cli man <command>` generates roff-formatted man pages
+- **Man pages** -- `apcore-cli man <command>` generates per-command man pages; `--help --man` prints a full-program man page via `configure_man_help()`
+- **Documentation URL** -- `set_docs_url()` sets a base URL; per-command help shows `Docs: {url}/commands/{name}`, man page SEE ALSO links to the full docs site
 - **Audit logging** -- all executions logged to `~/.apcore-cli/audit.jsonl` with SHA-256 input hashing
 
 ## How It Works
@@ -316,6 +319,10 @@ apcore-cli (the adapter)
     |
     +-- ConfigResolver       4-tier config precedence
     +-- LazyModuleGroup      Dynamic Click command generation
+    +-- set_verbose_help     Toggle built-in option visibility
+    +-- set_docs_url         Set base URL for online docs
+    +-- build_program_man_page  Full-program roff man page
+    +-- configure_man_help   Add --help --man support to any CLI
     +-- schema_parser        JSON Schema -> Click options
     +-- ref_resolver         $ref / allOf / anyOf / oneOf
     +-- approval             TTY-aware HITL approval
