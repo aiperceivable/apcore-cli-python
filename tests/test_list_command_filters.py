@@ -8,13 +8,16 @@ validation error.
 
 from __future__ import annotations
 
+import inspect
 import json
 from unittest.mock import MagicMock
 
 import click
+from apcore_cli.discovery import register_list_command
 from click.testing import CliRunner
 
-from apcore_cli.discovery import register_list_command
+# mix_stderr was removed in Click 8.2; from that version stderr is always separate.
+_RUNNER_KWARGS: dict = {"mix_stderr": False} if "mix_stderr" in inspect.signature(CliRunner.__init__).parameters else {}
 
 
 class _Mod:
@@ -126,7 +129,7 @@ class TestListFilters:
 
         mods = [_Mod("a"), _Mod("b")]
         cli = _build_cli(mods)
-        result = CliRunner(mix_stderr=False).invoke(cli, ["list", "--flat", "--format", "json", "--sort", "calls"])
+        result = CliRunner(**_RUNNER_KWARGS).invoke(cli, ["list", "--flat", "--format", "json", "--sort", "calls"])
         assert result.exit_code == 0
         assert "no usage data available" in (result.stderr or "")
 
