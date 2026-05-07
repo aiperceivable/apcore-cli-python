@@ -20,22 +20,23 @@ class ModuleExecutionError(Exception):
     pass
 
 
-class CliModuleNotFoundError(Exception):
+class ModuleNotFoundError(Exception):  # noqa: A001 — intentional shadow of builtin
     """Raised when a module ID is not found in the registry (exit 44).
 
-    Renamed from ``ModuleNotFoundError`` in v0.7.x (audit D2-001) to avoid
-    shadowing :class:`builtins.ModuleNotFoundError` — the Python interpreter
-    raises that builtin as part of the import-system contract, and a
-    re-exported same-named class made ``from apcore_cli import *`` clobber
-    the language-defined exception in the calling namespace.
-
-    Equivalent to TypeScript's ``ModuleNotFoundError`` and Rust's
-    ``DiscoveryError::ModuleNotFound``. Cross-language naming is asymmetric
-    by design: TS and Rust have no built-in collision and keep the short
-    name.
+    Cross-SDK naming parity (D1-002): renamed back to ``ModuleNotFoundError``
+    to match TypeScript's ``ModuleNotFoundError`` and Rust's
+    ``DiscoveryError::ModuleNotFound``. Importers should access this class
+    via the qualified module path (``apcore_cli.security.sandbox``) or a
+    namespaced alias (``import apcore_cli as cli; cli.ModuleNotFoundError``)
+    rather than ``from apcore_cli import *``, which would shadow
+    :class:`builtins.ModuleNotFoundError`.
     """
 
     pass
+
+
+# Deprecated alias kept for backward compat — prefer ModuleNotFoundError. Will be removed in v0.10.0.
+CliModuleNotFoundError = ModuleNotFoundError
 
 
 class SchemaValidationError(Exception):

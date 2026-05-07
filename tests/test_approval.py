@@ -18,29 +18,39 @@ def test_check_approval_is_exported_at_package_root():
     """
     import apcore_cli
 
-    assert (
-        apcore_cli.check_approval is check_approval
-    ), "apcore_cli.check_approval must alias apcore_cli.approval.check_approval"
-    assert (
-        "check_approval" in apcore_cli.__all__
-    ), "check_approval must be in apcore_cli.__all__ for `from apcore_cli import *`"
+    assert apcore_cli.check_approval is check_approval, (
+        "apcore_cli.check_approval must alias apcore_cli.approval.check_approval"
+    )
+    assert "check_approval" in apcore_cli.__all__, (
+        "check_approval must be in apcore_cli.__all__ for `from apcore_cli import *`"
+    )
 
 
-def test_module_not_found_error_does_not_shadow_builtin():
-    """D2-001: apcore_cli must NOT re-export a class named ModuleNotFoundError.
+def test_module_not_found_error_exports_with_deprecated_alias():
+    """D1-002: apcore_cli re-exports ModuleNotFoundError (cross-SDK parity)
+    and keeps CliModuleNotFoundError as a deprecated alias.
 
-    The Python interpreter raises builtins.ModuleNotFoundError as part of the
-    import system; a same-named class re-exported from apcore_cli would
-    clobber the builtin in any namespace doing `from apcore_cli import *`.
-    The class was renamed to CliModuleNotFoundError in v0.7.x.
+    TypeScript exports ``ModuleNotFoundError`` from src/index.ts and Rust
+    surfaces an equivalent ``DiscoveryError::ModuleNotFound`` — Python
+    aligned in v0.8.x by renaming back to ``ModuleNotFoundError``. Importers
+    that still pull the old name continue to work because
+    :data:`apcore_cli.security.sandbox.CliModuleNotFoundError` is kept as
+    an alias to the renamed class until v0.10.0.
+
+    Per-language note: ``from apcore_cli import *`` would shadow
+    :class:`builtins.ModuleNotFoundError`. Importers should prefer
+    ``import apcore_cli`` and access ``apcore_cli.ModuleNotFoundError``,
+    or import the qualified path
+    ``from apcore_cli.security.sandbox import ModuleNotFoundError``.
     """
     import apcore_cli
 
-    assert hasattr(apcore_cli, "CliModuleNotFoundError"), "CliModuleNotFoundError must be re-exported from apcore_cli"
+    assert hasattr(apcore_cli, "ModuleNotFoundError")
+    assert "ModuleNotFoundError" in apcore_cli.__all__
+    # Deprecated alias still resolves to the same class.
+    assert hasattr(apcore_cli, "CliModuleNotFoundError")
     assert "CliModuleNotFoundError" in apcore_cli.__all__
-    assert (
-        "ModuleNotFoundError" not in apcore_cli.__all__
-    ), "ModuleNotFoundError must NOT be in __all__ — it would shadow the Python builtin"
+    assert apcore_cli.CliModuleNotFoundError is apcore_cli.ModuleNotFoundError
 
 
 def _make_module(requires_approval=None, approval_message=None):
