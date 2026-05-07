@@ -8,7 +8,7 @@ Terminal adapter for apcore. Execute AI-Perceivable modules from the command lin
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-394%2B%20passed-brightgreen.svg)]()
+[![Tests](https://github.com/aiperceivable/apcore-cli-python/actions/workflows/ci.yml/badge.svg)](https://github.com/aiperceivable/apcore-cli-python/actions/workflows/ci.yml)
 
 | | |
 |---|---|
@@ -48,7 +48,11 @@ Terminal adapter for apcore. Execute AI-Perceivable modules from the command lin
 pip install apcore-cli
 ```
 
-Requires Python 3.11+ and `apcore >= 0.17.1`.
+Requires Python 3.11+ and `apcore >= 0.21.0`. The optional `toolkit` extra requires `apcore-toolkit >= 0.6`:
+
+```bash
+pip install "apcore-cli[toolkit]"
+```
 
 ## Quick Start
 
@@ -117,13 +121,22 @@ cli = create_cli(registry=registry, executor=executor, prog_name="myapp")
 
 #### Python API
 
-The `apcore_cli` package exposes three public symbols:
+The `apcore_cli` package re-exports the following public surface (see [`src/apcore_cli/__init__.py`](src/apcore_cli/__init__.py) for the canonical `__all__`):
 
 | Export | Description |
 |--------|-------------|
 | `__version__` | Package version string |
-| `create_cli(...)` | Factory that builds a ready-to-invoke `click.Group`. See the [`create_cli` reference](https://github.com/aiperceivable/apcore-cli) in the docs site for the full 8-parameter signature (`extensions_dir`, `prog_name`, `commands_dir`, `binding_path`, `registry`, `executor`, `extra_commands`, `expose`). |
+| `create_cli(...)` | Factory that builds a ready-to-invoke `click.Group`. See the [`create_cli` reference](https://github.com/aiperceivable/apcore-cli) in the docs site for the full 13-parameter signature: `extensions_dir`, `prog_name`, `commands_dir`, `binding_path`, `registry`, `executor`, `extra_commands`, `app`, `expose`, **`apcli`** (FE-13 P0 break), `allowed_prefixes`, `version`, `description`. The `app`, `allowed_prefixes`, `version`, and `description` parameters were added in v0.8.0. |
+| `ApcliGroup`, `ApcliMode`, `RESERVED_GROUP_NAMES` | FE-13 built-in `apcli` group surface (P0 break in v0.8.0). |
 | `ExposureFilter` | Declarative filter controlling which modules are exposed by the CLI (FE-12). |
+| `CliApprovalHandler`, `check_approval` | TTY-aware HITL approval handler / helper (FE-11). |
+| `ConfigResolver` | 4-tier config precedence resolver (CLI flag > env var > config file > default). |
+| `AuditLogger` | Append-only JSON Lines audit logger (`~/.apcore-cli/audit.jsonl`). |
+| `AuthProvider` | API-key authentication provider (keyring-backed). |
+| `ConfigEncryptor` | AES-256-GCM helper for encrypted config blobs. |
+| `Sandbox` | Subprocess sandbox for isolated module execution. |
+| `resolve_refs`, `schema_to_click_options`, `format_exec_result` | Schema/output helper functions. |
+| `ApprovalDeniedError`, `ApprovalTimeoutError`, `AuthenticationError`, `ConfigDecryptionError`, `ModuleExecutionError`, `CliModuleNotFoundError`, `SchemaValidationError` | Typed error classes raised by the SDK (mapped to documented exit codes). |
 
 **Exposure filtering** — restrict which modules are visible at the CLI layer without touching the underlying registry:
 
@@ -153,23 +166,25 @@ cli = create_cli(
 cli = create_cli(registry=registry, executor=executor, extra_commands=[my_custom_click_cmd])
 ```
 
-Or use the `LazyModuleGroup` directly with Click:
+Or build the CLI with a pre-populated registry and executor and full control over the `apcli` built-in group:
 
 ```python
-import click
 from apcore import Registry, Executor
-from apcore_cli.cli import LazyModuleGroup
+from apcore_cli import create_cli, ApcliMode
 
 registry = Registry(extensions_dir="./extensions")
 registry.discover()
 executor = Executor(registry)
 
-@click.group(cls=LazyModuleGroup, registry=registry, executor=executor)
-def cli():
-    pass
-
-cli()
+cli = create_cli(
+    registry=registry,
+    executor=executor,
+    apcli=ApcliMode.ALL,  # or "all" / "none" / {"mode": "include", "include": [...]}
+)
+cli(standalone_mode=True)
 ```
+
+> **Note:** `apcore_cli.cli.LazyModuleGroup` and `GroupedModuleGroup` are advanced internal classes used by `create_cli`. They are subject to change between releases — prefer `create_cli(...)` for stable embedding.
 
 ## Adding Custom Commands
 
@@ -262,7 +277,7 @@ apcore-cli [OPTIONS] COMMAND [ARGS]
 
 ### Built-in Commands
 
-apcore-cli ships with 14 built-in commands, all accessible under the `apcli` subgroup (e.g. `apcore-cli apcli list`). Root-level shims are kept for back-compat and will be removed in v0.8.
+apcore-cli ships with 13 built-in commands, all accessible under the `apcli` subgroup (e.g. `apcore-cli apcli list`). Root-level shims emit a deprecation warning in v0.8.x and are scheduled for removal in v0.9. Use `apcore-cli apcli <subcommand>` to avoid the warning.
 
 **Module invocation**
 
@@ -296,7 +311,8 @@ apcore-cli ships with 14 built-in commands, all accessible under the `apcli` sub
 | Command | Description |
 |---------|-------------|
 | `apcli completion <shell>` | Generate shell completion script (bash/zsh/fish) |
-| `apcli man <command>` | Generate roff man page for a command |
+
+The full-program man page is reachable via the root flag combination `apcore-cli --help --man` (powered by `configure_man_help()`); there is no standalone `apcli man` subcommand.
 
 ### Module Execution Options
 
@@ -359,6 +375,7 @@ apcore-cli uses a 4-tier configuration precedence:
 | `APCORE_CLI_APPROVAL_TIMEOUT` | Approval-gate timeout in seconds (v0.6.0) | `60` |
 | `APCORE_CLI_STRATEGY` | Default execution strategy (v0.6.0) | `standard` |
 | `APCORE_CLI_GROUP_DEPTH` | Depth of automatic command grouping by `.` segments (v0.6.0) | `1` |
+| `APCORE_CLI_APCLI` | FE-13 visibility for the `apcli` built-in group: `all`, `none`, `include`, `exclude`, or `auto` (v0.8.0). Overrides the `apcli:` block in `apcore.yaml`. | `auto` |
 
 ### Config File (`apcore.yaml`)
 
@@ -374,7 +391,31 @@ cli:
   approval_timeout: 60     # v0.6.0
   strategy: standard       # v0.6.0
   group_depth: 1           # v0.6.0
+apcli:                     # v0.8.0 (FE-13)
+  mode: all                # all | none | include | exclude
+  include: []              # used when mode == include
+  exclude: []              # used when mode == exclude
 ```
+
+### `apcli` built-in group visibility (FE-13)
+
+> **P0 breaking change in v0.8.0** — all built-ins were moved under the `apcli` group; the `BUILTIN_COMMANDS` constant has been retired.
+
+The visibility of the `apcli` group is resolved through a 4-tier decision chain:
+
+1. **`create_cli(apcli=...)` kwarg** (highest) — accepts an `ApcliMode` enum, a string (`"all"`, `"none"`, `"include"`, `"exclude"`), or a dict (`{"mode": "include", "include": ["list", "describe"]}`).
+2. **`APCORE_CLI_APCLI` env var** — `all`, `none`, `include`, `exclude`, or `auto`.
+3. **`apcli:` block in `apcore.yaml`** — see the example above.
+4. **Embedded vs. standalone default** (lowest) — standalone `apcore-cli` defaults to `all`; CLIs embedded via `create_cli(app=...)` default to `none` so that host applications opt in explicitly. The `auto` sentinel selects this default and is intended for env/config use only — it is not a user-facing `ApcliMode` value.
+
+The four user-visible modes are:
+
+| Mode | Behavior |
+|------|----------|
+| `all` | All 13 `apcli` subcommands are exposed. |
+| `none` | The `apcli` group is hidden entirely. |
+| `include` | Only the subcommands listed in `include` are exposed. |
+| `exclude` | All subcommands except those listed in `exclude` are exposed. |
 
 ## Features
 
@@ -390,7 +431,7 @@ cli:
 - **Schema validation** -- inputs validated against JSON Schema before execution, with `$ref`/`allOf`/`anyOf`/`oneOf` resolution
 - **Security** -- API key auth (keyring + AES-256-GCM), append-only audit logging, subprocess sandboxing
 - **Shell completions** -- `apcore-cli apcli completion bash|zsh|fish` generates completion scripts with dynamic module ID completion
-- **Man pages** -- `apcore-cli apcli man <command>` generates per-command man pages; `--help --man` prints a full-program man page via `configure_man_help()`
+- **Man pages** -- `apcore-cli --help --man` prints a full-program roff man page to stdout, powered by `configure_man_help()` (also exposed for embedded CLIs to opt in)
 - **Documentation URL** -- `set_docs_url()` sets a base URL; per-command help shows `Docs: {url}/commands/{name}`, man page SEE ALSO links to the full docs site
 - **Audit logging** -- all executions logged to `~/.apcore-cli/audit.jsonl` with SHA-256 input hashing
 
@@ -477,8 +518,8 @@ apcore-cli apcli completion bash >> ~/.bashrc
 apcore-cli apcli completion zsh >> ~/.zshrc
 apcore-cli apcli completion fish > ~/.config/fish/completions/apcore-cli.fish
 
-# Man pages
-apcore-cli apcli man list | man -l -
+# Man pages (full-program roff output)
+apcore-cli --help --man | man -l -
 
 # Run all examples at once
 bash examples/run_examples.sh

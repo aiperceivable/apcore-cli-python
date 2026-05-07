@@ -203,11 +203,22 @@ def register_list_command(
             modules = [m for m in modules if not active_filter.is_exposed(getattr(m, "module_id", ""))]
 
         if sort in ("calls", "errors", "latency"):
-            logger.warning(
-                "Usage data not available; sorting by id. Sort by %s requires system.usage modules.",
-                sort,
-            )
-        modules.sort(key=lambda m: getattr(m, "module_id", ""), reverse=reverse)
+            from apcore_cli.system_usage import sort_modules_by_usage
+
+            modules, used_data = sort_modules_by_usage(modules, sort, reverse=reverse)
+            if not used_data:
+                # Issue #17 AC: visible message (not just logger.warning) when
+                # the audit log has no matching entries — fresh installs, or
+                # when the user asked for usage-based sorting before the log
+                # has accumulated data in the period window.
+                click.echo(
+                    f"note: no usage data available for --sort {sort}; "
+                    "sorted by id. Run some modules first to populate "
+                    "~/.apcore-cli/audit.jsonl.",
+                    err=True,
+                )
+        else:
+            modules.sort(key=lambda m: getattr(m, "module_id", ""), reverse=reverse)
 
         fmt = resolve_format(output_format)
         show_exposure_col = exposure == "all"

@@ -115,15 +115,20 @@ class TestListFilters:
         ids = [d["id"] for d in json.loads(result.output)]
         assert ids == ["a"]
 
-    def test_sort_calls_emits_warning(self, caplog):
-        import logging as pylogging
+    def test_sort_calls_emits_user_visible_note(self, tmp_path, monkeypatch):
+        # Issue #17: when audit log has no entries in the period window the
+        # discovery layer falls back to id-sort and emits a user-visible note
+        # to stderr (not a buried logger.warning, which most users miss).
+        from apcore_cli.security.audit import AuditLogger
+
+        # Force the system_usage reader to look at an empty file.
+        monkeypatch.setattr(AuditLogger, "DEFAULT_PATH", tmp_path / "audit.jsonl")
 
         mods = [_Mod("a"), _Mod("b")]
         cli = _build_cli(mods)
-        with caplog.at_level(pylogging.WARNING, logger="apcore_cli.discovery"):
-            result = CliRunner().invoke(cli, ["list", "--flat", "--format", "json", "--sort", "calls"])
+        result = CliRunner(mix_stderr=False).invoke(cli, ["list", "--flat", "--format", "json", "--sort", "calls"])
         assert result.exit_code == 0
-        assert "Usage data not available" in caplog.text
+        assert "no usage data available" in (result.stderr or "")
 
     def test_reverse_sort(self):
         mods = [_Mod("b"), _Mod("a"), _Mod("c")]

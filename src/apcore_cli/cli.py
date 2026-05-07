@@ -397,7 +397,7 @@ class GroupedModuleGroup(LazyModuleGroup):
         # Footer hints for discoverability
         formatter.write_paragraph()
         formatter.write(
-            "Use --help --verbose to show all options (including built-in apcore options).\n"
+            "Use --help --verbose to show all options (including built-in options).\n"
             "Use --help --man to display a formatted man page."
         )
 
@@ -778,7 +778,7 @@ def build_module_command(
     # Build the command with schema-generated options + built-in options
     _epilog_parts: list[str] = []
     if not _verbose_help:
-        _epilog_parts.append("Use --verbose to show all options (including built-in apcore options).")
+        _epilog_parts.append("Use --verbose to show all options (including built-in options).")
     if _docs_url:
         _epilog_parts.append(f"Docs: {_docs_url}/commands/{effective_cmd_name}")
     _epilog = "\n".join(_epilog_parts) if _epilog_parts else None

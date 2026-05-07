@@ -14,6 +14,7 @@ import sys
 # Re-export create_cli for backward compatibility — older callers may import
 # `from apcore_cli.__main__ import create_cli`. The canonical import path is
 # `from apcore_cli import create_cli` (or `apcore_cli.factory`).
+from apcore_cli.factory import __version__ as _sdk_version
 from apcore_cli.factory import create_cli
 
 
@@ -55,12 +56,17 @@ def main(prog_name: str | None = None) -> None:
     cmd_dir = _extract_argv_option(None, "--commands-dir")
     bind_path = _extract_argv_option(None, "--binding")
     allowed_prefixes = _extract_argv_option_repeatable(None, "--allowed-prefix") or None
+    # Standalone bin entry — SDK version IS the app version here. Passing it
+    # explicitly is required because create_cli() (issue #18) intentionally
+    # skips --version for embedded callers that do not opt in.
     cli = create_cli(
         extensions_dir=ext_dir,
         prog_name=prog_name,
         commands_dir=cmd_dir,
         binding_path=bind_path,
         allowed_prefixes=allowed_prefixes,
+        version=_sdk_version,
+        description=f"{prog_name or 'apcore-cli'} — execute apcore modules from the command line",
     )
     cli(standalone_mode=True)
 

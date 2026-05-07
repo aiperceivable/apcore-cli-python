@@ -35,75 +35,58 @@ bash examples/run_examples.sh
 
 ## Writing Your Own Module
 
-Each module is a directory with two files:
+Modules are plain Python files with `Input`/`Output` pydantic models and an
+`execute()` method. apcore-cli auto-discovers them — no decorator required.
 
 ```
 extensions/
 └── greet/
-    └── hello/
-        ├── module.json    <- descriptor (schema + metadata)
-        └── run.sh         <- execution logic (any language)
+    └── hello.py
 ```
 
-### Step 1: Create `module.json`
+### Step 1: Create the module file
 
-Defines the module's ID, description, input/output schemas, and executable:
+```python
+# extensions/greet/hello.py
+from pydantic import BaseModel
 
-```json
-{
-  "name": "greet.hello",
-  "description": "Greet someone by name",
-  "tags": ["demo"],
-  "executable": "run.sh",
-  "input_schema": {
-    "type": "object",
-    "properties": {
-      "name": { "type": "string", "description": "Person to greet" },
-      "greeting": { "type": "string", "description": "Greeting word", "default": "Hello" }
-    },
-    "required": ["name"]
-  },
-  "output_schema": {
-    "type": "object",
-    "properties": {
-      "message": { "type": "string" }
-    }
-  }
-}
+
+class Input(BaseModel):
+    name: str
+    greeting: str = "Hello"
+
+
+class Output(BaseModel):
+    message: str
+
+
+class GreetHello:
+    """Greet someone by name."""
+
+    input_schema = Input
+    output_schema = Output
+    description = "Greet someone by name"
+
+    def execute(self, inputs, context=None):
+        return {"message": f"{inputs['greeting']}, {inputs['name']}!"}
 ```
 
-### Step 2: Create `run.sh`
+The module ID is derived from the file path: `extensions/greet/hello.py`
+becomes `greet.hello`. With the default `group_depth=1` (v0.6.0+), it is
+invoked as `greet hello` (split on the first dot), not as a single
+dotted token.
 
-Reads JSON from stdin, writes JSON to stdout. Can be written in **any language**:
+### Step 2: Run it
 
 ```bash
-#!/usr/bin/env bash
-python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-name = d['name']
-greeting = d.get('greeting', 'Hello')
-print(json.dumps({'message': f'{greeting}, {name}!'}))
-"
-```
-
-Make it executable:
-
-```bash
-chmod +x run.sh
-```
-
-### Step 3: Run it
-
-```bash
-apcore-cli --extensions-dir ./extensions greet.hello --name World
+apcore-cli --extensions-dir ./extensions greet hello --name World
 # {"message": "Hello, World!"}
 
-apcore-cli --extensions-dir ./extensions greet.hello --name Alice --greeting Hi
+apcore-cli --extensions-dir ./extensions greet hello --name Alice --greeting Hi
 # {"message": "Hi, Alice!"}
 
 # Auto-generated help from input_schema
-apcore-cli --extensions-dir ./extensions greet.hello --help
+apcore-cli --extensions-dir ./extensions greet hello --help
 ```
 
 ### How It Works
@@ -111,15 +94,16 @@ apcore-cli --extensions-dir ./extensions greet.hello --help
 ```
 apcore-cli greet hello --name World
     │
-    ├── 1. Read module.json → register schema + flags
-    ├── 2. Parse --name World → {"name": "World"}
-    ├── 3. Validate input against input_schema
-    └── 4. Spawn run.sh, pipe JSON stdin → stdout
+    ├── 1. apcore Registry discovers extensions/greet/hello.py
+    ├── 2. Click options are auto-generated from Input's JSON Schema
+    ├── 3. --name World is parsed and validated against Input
+    └── 4. apcore Executor calls GreetHello.execute(inputs={"name": "World", ...})
               │
               └── {"message": "Hello, World!"}
 ```
 
-The CLI only cares about the JSON stdin/stdout protocol. Your `run.sh` can call Python, Node, Rust binaries, APIs, or anything else.
+apcore-cli is a pure adapter on top of apcore's `Registry` + `Executor` — see
+the project README for the full architecture.
 
 ## STDIN Piping
 

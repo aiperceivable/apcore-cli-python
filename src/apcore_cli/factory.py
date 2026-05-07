@@ -76,6 +76,8 @@ def create_cli(
     expose: dict | ExposureFilter | None = None,
     apcli: bool | dict | ApcliGroup | None = None,
     allowed_prefixes: list[str] | None = None,
+    version: str | None = None,
+    description: str | None = None,
 ) -> click.Group:
     """Create the CLI application.
 
@@ -367,6 +369,10 @@ def create_cli(
         click.echo(f"Error: {e}", err=True)
         sys.exit(2)
 
+    # Issue #19: when used as a library, do not leak "apcore" framing into
+    # the host CLI's --help. Default to a neutral, prog_name-derived string.
+    _resolved_help = description if description is not None else f"{prog_name} CLI"
+
     @click.group(
         cls=GroupedModuleGroup,
         registry=registry,
@@ -375,11 +381,7 @@ def create_cli(
         exposure_filter=exposure_filter,
         extensions_root=ext_dir,
         name=prog_name,
-        help="CLI adapter for the apcore module ecosystem.",
-    )
-    @click.version_option(
-        version=__version__,
-        prog_name=prog_name,
+        help=_resolved_help,
     )
     @click.option(
         "--log-level",
@@ -392,7 +394,7 @@ def create_cli(
         "verbose_help",
         is_flag=True,
         default=False,
-        help="Show all options in help output (including built-in apcore options).",
+        help="Show all options in help output (including built-in options).",
     )
     @click.pass_context
     def cli(
@@ -451,12 +453,18 @@ def create_cli(
             ]
         )
 
+    # Issue #18: only register --version when the host application opts in by
+    # passing `version=`. Embedded CLIs that do not supply a version no longer
+    # leak the SDK's own version through `-V/--version`.
+    if version is not None:
+        cli = click.version_option(version=version, prog_name=prog_name)(cli)
+
     # Build the apcli sub-group. `hidden` controls root --help rendering only
     # (spec §4.1 / §4.11): the group and its subcommands remain reachable via
     # `<cli> apcli ...` regardless.
     apcli_group = click.Group(
         name="apcli",
-        help="apcore-cli built-in commands.",
+        help="Built-in commands.",
         hidden=not apcli_cfg.is_group_visible(),
     )
     cli.add_command(apcli_group)

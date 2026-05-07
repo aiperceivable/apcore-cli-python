@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.8.0] - 2026-05-07
+
+### Changed
+
+- **Dependency bump**: requires `apcore >= 0.21.0` (was `>= 0.19.0`) and the
+  optional `[toolkit]` extra now requires `apcore-toolkit >= 0.6` (was `>= 0.5`).
+  Aligns with upstream `apcore 0.21.0` (Module.preview / PreflightResult.predicted_changes,
+  ephemeral.* namespace pilot) and `apcore-toolkit 0.6.0` (surface-aware formatters).
+  No CLI-visible behavioural breaks — apcore 0.20→0.21 deprecations
+  (`TaskStore.put`/`save`, `TaskStatus.RETRYING`, `CircuitOpenError`) keep
+  legacy aliases for one minor release; the cli does not call those surfaces directly.
+- **Issue #19 — drop "apcore" branding from embedded-mode `--help`**:
+  `create_cli()` now resolves the top-level CLI description from the new
+  `description=` parameter (defaults to `f"{prog_name} CLI"`), the `apcli`
+  subgroup advertises itself as `Built-in commands` rather than
+  `apcore-cli built-in commands`, and the `--verbose` option / footer drop
+  the trailing `apcore` from `(including built-in apcore options)`. Standalone
+  bin entry (`apcore_cli/__main__.py:main()`) passes
+  `description="<prog> — execute apcore modules from the command line"`
+  explicitly so the standalone surface is unchanged.
+
+### Added
+
+- **Issue #18 — host-app `--version` opt-in**: new `version: str | None = None`
+  parameter on `create_cli()`. When supplied, registers `-V/--version` with
+  the host's version string. **When omitted, the `--version` flag is no
+  longer registered** — embedded CLIs that do not opt in stop leaking the
+  SDK's own version through `-V/--version`. The standalone bin entry
+  passes `version=apcore_cli.__version__` explicitly so the
+  `apcore-cli` binary's behaviour is preserved.
+- **Issue #19 — `description: str | None = None`** on `create_cli()`.
+- **Issue #17 — `system.usage` aggregator + `list --sort calls|errors|latency`**:
+  new module `apcore_cli.system_usage` reads `~/.apcore-cli/audit.jsonl`,
+  filters by period (default 24h), and returns per-module aggregates
+  (`calls`, `errors`, `avg latency_ms`). `list --sort {calls,errors,latency}`
+  now consults the aggregator instead of falling back to id-sort with a
+  buried `logger.warning`. When the audit log has no entries in the period
+  window the discovery layer prints a user-visible note to stderr
+  (`note: no usage data available for --sort <field>; sorted by id. ...`)
+  and falls back to id-sort. Module-protocol registration of
+  `system.usage.summary` / `system.usage.module` as registry-callable
+  built-ins is tracked as a follow-up — today the readers are invoked
+  directly by the discovery layer.
+- New file: `apcore_cli/system_usage.py`.
+
+---
+
 ## [0.7.0] - 2026-04-23
 
 ### Changed

@@ -336,17 +336,32 @@ class TestMainEntryPoint:
         assert "apcore-cli" in result.output.lower() or "apcore" in result.output.lower()
 
     def test_main_version_flag(self, tmp_path):
+        # Issue #18: --version is opt-in. When the host application passes
+        # `version=` to create_cli(), `-V/--version` prints that string. When
+        # version is omitted, the flag is not registered at all.
         from click.testing import CliRunner
 
+        from apcore_cli import __version__
         from apcore_cli.__main__ import create_cli
 
         runner = CliRunner()
-        result = runner.invoke(create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli"), ["--version"])
+        cli_with_version = create_cli(
+            extensions_dir=str(tmp_path),
+            prog_name="apcore-cli",
+            version=__version__,
+        )
+        result = runner.invoke(cli_with_version, ["--version"])
         assert result.exit_code == 0
-        from apcore_cli import __version__
-
         assert "apcore-cli" in result.output
         assert __version__ in result.output
+
+        # When version is not supplied, --version is unrecognised (issue #18).
+        cli_without_version = create_cli(
+            extensions_dir=str(tmp_path),
+            prog_name="apcore-cli",
+        )
+        result_no_version = runner.invoke(cli_without_version, ["--version"])
+        assert result_no_version.exit_code != 0
 
     def test_main_extensions_dir_not_found(self):
         import pytest
