@@ -122,9 +122,15 @@ def _resolve_node(
                     merged[k] = v
             return merged
 
-    # Recursively process nested properties
+    # Recursively process nested properties.
+    # Audit D11-NEW-003 (2026-05-08): max_depth counts $ref hops only — plain
+    # nested-properties recursion does NOT increment `depth`. Previously
+    # incrementing here caused valid deeply-nested schemas (>32 levels of
+    # nested `properties`) to be rejected even when no $ref chain existed.
+    # Aligned with Rust's interpretation of the spec ("Maximum $ref
+    # resolution recursion depth", schema-parser.md §Contract).
     if "properties" in node:
         for prop_name, prop_schema in node["properties"].items():
-            node["properties"][prop_name] = _resolve_node(prop_schema, defs, visited, depth + 1, max_depth, module_id)
+            node["properties"][prop_name] = _resolve_node(prop_schema, defs, visited, depth, max_depth, module_id)
 
     return node

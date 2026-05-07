@@ -285,3 +285,61 @@ class TestRefResolverExceptions:
         assert hasattr(_ref_resolver, "CircularRefError")
         assert hasattr(_ref_resolver, "UnresolvableRefError")
         assert hasattr(_ref_resolver, "MaxDepthExceededError")
+
+    # Audit D11-NEW-001 (2026-05-08): a parent's `required` applies in
+    # addition to anyOf/oneOf branch intersection — sibling required must
+    # not be silently dropped. Cross-SDK parity locks this in.
+    def test_anyof_preserves_parent_sibling_required(self):
+        schema = {
+            "type": "object",
+            "required": ["x"],
+            "anyOf": [
+                {"properties": {"a": {"type": "string"}}, "required": ["a"]},
+                {"properties": {"a": {"type": "integer"}}, "required": ["a"]},
+            ],
+        }
+        result = resolve_refs(schema, module_id="test")
+        # Sibling-first ordering: parent "x" before branch-intersection "a".
+        assert result["required"] == ["x", "a"]
+
+    def test_oneof_preserves_parent_sibling_required(self):
+        schema = {
+            "type": "object",
+            "required": ["host", "port"],
+            "oneOf": [
+                {"properties": {"mode": {"const": "http"}}, "required": ["scheme"]},
+                {"properties": {"mode": {"const": "tcp"}}, "required": ["scheme"]},
+            ],
+        }
+        result = resolve_refs(schema, module_id="test")
+        assert result["required"] == ["host", "port", "scheme"]
+
+    def test_anyof_dedupes_overlap_between_sibling_and_branch_intersection(self):
+        schema = {
+            "type": "object",
+            "required": ["a"],
+            "anyOf": [
+                {"required": ["a", "b"]},
+                {"required": ["a", "c"]},
+            ],
+        }
+        result = resolve_refs(schema, module_id="test")
+        assert result["required"] == ["a"]
+
+    # Audit D11-NEW-003 (2026-05-08): max_depth counts $ref hops only;
+    # plain nested-properties recursion does NOT increment depth. A
+    # deeply-nested non-ref schema must resolve cleanly.
+    def test_deep_nested_properties_does_not_count_against_max_depth(self):
+        nested: dict = {"type": "string"}
+        for _ in range(50):
+            nested = {"type": "object", "properties": {"inner": nested}}
+        schema = {"type": "object", "properties": {"root": nested}}
+        # Pre-fix this raised MaxDepthExceededError at the 32nd level.
+        result = resolve_refs(schema, max_depth=32, module_id="test")
+        # Spot-check that the 50-level chain made it through.
+        cur = result["properties"]["root"]
+        depth_seen = 0
+        while isinstance(cur, dict) and "properties" in cur and "inner" in cur["properties"]:
+            cur = cur["properties"]["inner"]
+            depth_seen += 1
+        assert depth_seen == 50
