@@ -13,8 +13,9 @@ import json
 from unittest.mock import MagicMock
 
 import click
-from apcore_cli.discovery import register_list_command
 from click.testing import CliRunner
+
+from apcore_cli.discovery import register_list_command
 
 # mix_stderr was removed in Click 8.2; from that version stderr is always separate.
 _RUNNER_KWARGS: dict = {"mix_stderr": False} if "mix_stderr" in inspect.signature(CliRunner.__init__).parameters else {}
