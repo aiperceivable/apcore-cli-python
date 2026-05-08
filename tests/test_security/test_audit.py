@@ -52,9 +52,28 @@ class TestAuditLogger:
         log_path = Path("/nonexistent/readonly/audit.jsonl")
         logger = AuditLogger.__new__(AuditLogger)
         logger._path = log_path
+        logger._write_failure_warned = False
         with caplog.at_level(logging.WARNING, logger="apcore_cli.security"):
             logger.log_execution("mod", {}, "success", 0, 10)
         assert "Could not write audit log" in caplog.text
+
+    def test_log_write_failure_warns_only_once(self, tmp_path, caplog):
+        """D11-010: write-failure warning is deduplicated per logger instance,
+        matching TS ``writeFailureWarned`` flag for cross-SDK parity."""
+        log_path = Path("/nonexistent/readonly/audit.jsonl")
+        logger = AuditLogger.__new__(AuditLogger)
+        logger._path = log_path
+        logger._write_failure_warned = False
+        with caplog.at_level(logging.WARNING, logger="apcore_cli.security"):
+            logger.log_execution("mod", {}, "success", 0, 10)
+            logger.log_execution("mod", {}, "success", 0, 10)
+            logger.log_execution("mod", {}, "success", 0, 10)
+        write_failure_warnings = [
+            rec for rec in caplog.records if "Could not write audit log" in rec.getMessage()
+        ]
+        assert len(write_failure_warnings) == 1, (
+            f"expected exactly 1 write-failure warning, got {len(write_failure_warnings)}"
+        )
 
     def test_get_user_fallback_pwd(self, monkeypatch):
         # When getlogin() fails, should fall back to pwd.getpwuid()

@@ -20,6 +20,9 @@ class AuditLogger:
 
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or self.DEFAULT_PATH
+        # D11-010: dedup write-failure warnings — warn once per logger
+        # instance, matching TS `writeFailureWarned` flag for cross-SDK parity.
+        self._write_failure_warned: bool = False
         self._ensure_directory()
 
     def _ensure_directory(self) -> None:
@@ -50,7 +53,9 @@ class AuditLogger:
             with contextlib.suppress(OSError):
                 os.chmod(self._path, 0o600)
         except OSError as e:
-            logger.warning("Could not write audit log: %s", e)
+            if not self._write_failure_warned:
+                logger.warning("Could not write audit log: %s", e)
+                self._write_failure_warned = True
 
     def _hash_input(self, input_data: dict) -> str:
         """Hash input with a random salt to prevent correlation across invocations."""
