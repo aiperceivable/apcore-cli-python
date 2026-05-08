@@ -20,11 +20,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-zero with Click's "No such command" message — the warning window
   documented as "removed in v0.8" is closed.
 
+### Deprecated
+
+- **`CliModuleNotFoundError` alias** — the symbol still resolves to
+  `ModuleNotFoundError` (see D1-002 in Changed) but is scheduled for
+  removal in v0.10.0. Update imports to
+  `from apcore_cli import ModuleNotFoundError`.
+
+### Security
+
+- **D10-001 — `Sandbox` per-stream output cap** (`sandbox.py:155`). The previous
+  implementation summed `stdout + stderr` against a single `max_output_bytes`
+  budget — a runaway child writing only to stderr could starve the stdout
+  budget and vice versa, and the diagnostic on overflow did not name the
+  offending stream. Each stream now has an independent byte budget matching
+  Rust and TypeScript; the overflow error names the stream that tripped the
+  cap.
+- **D11-W2 — `Sandbox` switched from `subprocess.run` to `subprocess.Popen`
+  with threaded chunked reads** (`sandbox.py:155`). `capture_output=True`
+  buffered the entire child stdio into parent memory before the cap was
+  checked, so a child producing GBs of output could OOM the parent before
+  the limit was enforced. The new implementation streams stdout/stderr
+  through reader threads with bounded buffers and kills the child as soon
+  as either stream exceeds its cap. Memory consumption is now bounded by
+  `2 × max_output_bytes` regardless of child output volume.
+- **D11-003 — `ConfigEncryptor` v1 decryption honours
+  `APCORE_CLI_CONFIG_PASSPHRASE`** (`config_encryptor.py:128`). `_aes_decrypt_v1`
+  hard-coded the host:user material, so v1 ciphertext encrypted by the Rust
+  or TypeScript SDKs under a passphrase failed to decrypt on Python.
+  Decryption now tries the passphrase-derived key first when the env var is
+  set, falling back to host:user material — matching TypeScript
+  `aesDecryptV1`. Cross-SDK config bundles are now portable.
+- **D11-008 — `AuditLogger._get_user` fallback chain now includes `LOGNAME`**
+  (`audit.py:66`). The canonical chain per `security.md` (D11-W1) is
+  `getlogin → pwd.getpwuid → USER → LOGNAME → USERNAME → unknown`. Python
+  previously skipped `LOGNAME`, so audit-log `user` fields diverged from
+  Rust/TS on hosts where only `LOGNAME` is set (some container runtimes,
+  cron jobs).
+
 ### Added
 
 - **`builtin_group_name="apcli"` kwarg on `create_cli`** — downstream branded CLIs that embed apcore-cli can now expose the built-in commands under a custom namespace (e.g. `mycorp-cli admin health` instead of `mycorp-cli apcli health`). `ApcliGroup` gains a `name` parameter (with property accessor) threaded through `from_cli_config` / `from_yaml` / `_build`. Default `"apcli"` is unchanged. Validated against `/^[a-z][a-z0-9_-]*$/`; invalid values exit 2. `RESERVED_GROUP_NAMES` collision check now consults `GroupedModuleGroup._reserved_group_names` (instance attribute, defaults to the static frozenset; factory replaces with the resolved name). Env var `APCORE_CLI_APCLI` and config keys `apcli.*` deliberately do NOT rename — they are apcore-cli-internal toggles, not user-facing. Cross-SDK parity with TypeScript `createCli({ builtinGroupName })`. New `DEFAULT_BUILTIN_GROUP_NAME` constant exported from `apcore_cli.builtin_group`.
 - **`_exit_on_system_error(e)` helper in `system_cmd.py`** — centralizes the canonical error→exit-code mapping for system-management subcommands, replacing 7 sites that previously used bare `sys.exit(1)` (audit D11-B-002, see Fixed).
 - **5 new tests in `tests/test_builtin_group.py`** — `TestBuiltinGroupRename` class covers default name, custom name via both factories, validation of valid/invalid name shapes (5 valid + 6 invalid forms each).
+- **D1-001 — 13 `register_*_command` factories + `configure_man_help`
+  re-exported from `apcore_cli` package root**. Embedders that compose
+  their own root command tree no longer need to reach into private
+  submodules (`apcore_cli.commands.list_cmd`, etc.). All TS/Rust
+  `register_*` counterparts now have a Python public-API equivalent.
+- **D1-003 — `apcore_cli.exit_codes` module** with 24 `EXIT_*` integer
+  constants, an `EXIT_CODES` mapping dict, and an `exit_code_for_error()`
+  helper. Mirrors TS `errors.ts` `EXIT_CODES` + `exitCodeForError` and
+  Rust `src/lib.rs` `EXIT_*` constants. Embedders can now map exceptions
+  to documented exit codes without re-implementing the table.
+- **D1-007 — `format_module_list`, `format_module_detail`,
+  `resolve_format` re-exported from package root**. The
+  output-formatter feature spec declares these as Contracts; previously
+  only `format_exec_result` was public.
+- **D1-W1 — `APCLI_SUBCOMMAND_NAMES` re-exported from `apcore_cli`**.
+  Matches Rust `lib.rs` and is now in `__all__` for static-analysis
+  tooling.
+- **D1-W2 — `ApcliConfig` TypedDict** added to the public surface,
+  mirroring the TypeScript type alias and Rust struct so embedders have
+  a static contract for the `apcli.*` config block.
+- **D1-W3 — `register_config_namespace()` helper + module-level
+  `DEFAULTS` constant** in `config.py`. The package still registers the
+  namespace at import time, but embedders can now invoke the helper
+  explicitly (parity with `apcore-cli-typescript`).
+- **D1-W5 — Core dispatcher embedder API re-exported from package
+  root**: `build_module_command`, `collect_input`, `validate_module_id`,
+  `set_audit_logger`, `set_verbose_help`, `set_docs_url`. Embedders no
+  longer have to import from `apcore_cli.cli` directly. Matches Rust
+  `lib.rs:186-190` and TS `index.ts:18`. New `tests/test_public_api.py`
+  pins the surface against future drift.
+- **D1-info-1 — typed `ApcliGroupError` exception**
+  (`builtin_group.py:107`). Cross-SDK parity with Rust `ApcliGroupError`;
+  embedders previously had no stable error class to match on for
+  built-in-group config validation. `ApcliGroupError(ValueError)`
+  preserves backwards compat — existing `except ValueError` callers
+  still catch it. The invalid-name regex check in `__init__` now raises
+  `ApcliGroupError`. Re-exported from `apcore_cli`.
 
 ### Fixed
 
@@ -32,6 +107,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **D11-B-002 — `system_cmd.py` collapsed every error to exit 1**. The 7 `except Exception as e: sys.exit(1)` sites bypassed Python's own `_ERROR_CODE_MAP` (canonical 44/46/47/77) — scripted operators could not distinguish "module not found" from "ACL denied" from generic failure. All 7 sites now route through the new `_exit_on_system_error(e)` helper which calls `exit_code_for_error(e)` from `apcore_cli.exit_codes`. The 4 audit-log entries previously hardcoding `exit_code=1` now log the resolved code.
 - **D11-NEW-005 — RESERVED_PROPERTY_NAMES no longer raises generic `ValueError`**. `schema_to_click_options` previously raised `ValueError` when a schema property collided with a built-in CLI option — opaque to scripted callers and inconsistent with the neighbour flag-collision branch (which already exited 48). Now writes a user-facing `Error:` line to stderr and calls `sys.exit(48)` per spec, matching TS `process.exit(EXIT_CODES.SCHEMA_CIRCULAR_REF)` and Rust `CliError::SchemaParserFailure → EXIT_SCHEMA_CIRCULAR_REF`. Tests tightened from `pytest.raises((ValueError, Exception))` to `pytest.raises(SystemExit)` with `code == 48` assertion.
 - **D9-NEW-002 — `ref_resolver.py` `allOf required` not deduplicated**. `_resolve_node`'s `allOf` branch concatenated parent `required` + each branch's `required` without dedup, producing duplicate entries in the merged schema's `required` array. JSON Schema validators ignore duplicates so observable validation behaviour was unchanged, but cross-SDK byte-comparison tooling (and the `anyOf`/`oneOf` paths, which already deduped) flagged the divergence. Fix: explicit seen-set dedup preserving first-seen order, matching TS `[...new Set(...)]` and Rust `merge_allof`.
+- **D10-003 — `build_module_command` leaked `RefResolverError`
+  tracebacks** (`cli.py:538`). The `resolve_refs` catch clause re-raised
+  unchanged, so callers saw a Python traceback instead of a clean
+  documented exit code. Now translates `CircularRefError` /
+  `MaxDepthExceededError` to `sys.exit(48)` and `UnresolvableRefError`
+  (plus generic `RefResolverError`) to `sys.exit(45)`, mirroring
+  `schema_parser.py:111` and the Rust/TS contracts.
+- **D11-NEW-003 — `ref_resolver` `max_depth` over-counted plain nested
+  `properties`** (`ref_resolver.py`). `_resolve_node` previously
+  incremented `depth + 1` when recursing into nested `properties`
+  values, so a schema with >32 levels of nested objects (no `$ref` at
+  all) was rejected with `MaxDepthExceededError`. The spec wording is
+  "Maximum `$ref` resolution recursion depth" — `$ref` hops along a
+  single chain, not total stack depth. `depth` is now only incremented
+  on `$ref` traversal, aligning with Rust `ref_resolver.rs:297`. Also
+  adds 4 regression tests for `anyOf`/`oneOf` sibling-required
+  preservation and `anyOf` overlap dedup.
+- **D10-info-1 — `APCORE_CLI_APCLI` env var not trimmed on read**
+  (`builtin_group.py:414`). Spec invariant 2 requires the parser to be
+  case-insensitive AND trim-on-read. Surrounding whitespace previously
+  caused a silent Tier-3/Tier-4 fall-through. Now strips before
+  lowercasing, matching Rust/TS.
+- **D11-010 — `AuditLogger` write-failure warnings deduplicated**
+  (`audit.py:55`). Previously warned on every failed write, flooding
+  logs when an audit dir is unwritable. An instance flag now gates the
+  warning so it fires once per logger instance, matching the TS
+  `writeFailureWarned` flag.
 
 ### Changed
 
@@ -48,6 +150,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   No CLI-visible behavioural breaks — apcore 0.20→0.21 deprecations
   (`TaskStore.put`/`save`, `TaskStatus.RETRYING`, `CircuitOpenError`) keep
   legacy aliases for one minor release; the cli does not call those surfaces directly.
+- **D1-002 — `CliModuleNotFoundError` renamed to `ModuleNotFoundError`**
+  for cross-language port-ability with TS / Rust `ModuleNotFoundError`.
+  The class intentionally shadows `builtins.ModuleNotFoundError` inside
+  the `apcore_cli` namespace. A deprecation alias
+  `CliModuleNotFoundError = ModuleNotFoundError` is kept for backwards
+  compatibility and will be removed in v0.10.0. Reverses the D2-001
+  rename which predated the cross-SDK parity policy.
 - **Issue #19 — drop "apcore" branding from embedded-mode `--help`**:
   `create_cli()` now resolves the top-level CLI description from the new
   `description=` parameter (defaults to `f"{prog_name} CLI"`), the `apcli`
