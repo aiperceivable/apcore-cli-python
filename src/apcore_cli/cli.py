@@ -17,7 +17,14 @@ from apcore_cli.approval import check_approval
 from apcore_cli.builtin_group import RESERVED_GROUP_NAMES as RESERVED_GROUP_NAMES  # noqa: PLC0414
 from apcore_cli.display_helpers import get_display as _get_display
 from apcore_cli.output import format_exec_result
-from apcore_cli.ref_resolver import RefResolverError, resolve_refs
+from apcore_cli.exit_codes import EXIT_SCHEMA_CIRCULAR_REF, EXIT_SCHEMA_VALIDATION_ERROR
+from apcore_cli.ref_resolver import (
+    CircularRefError,
+    MaxDepthExceededError,
+    RefResolverError,
+    UnresolvableRefError,
+    resolve_refs,
+)
 from apcore_cli.schema_parser import reconvert_enum_values, schema_to_click_options
 from apcore_cli.security.sandbox import Sandbox
 
@@ -535,8 +542,24 @@ def build_module_command(
     if input_schema.get("properties"):
         try:
             resolved_schema = resolve_refs(input_schema, max_depth=32, module_id=module_id)
-        except (SystemExit, RefResolverError):
+        except SystemExit:
             raise
+        except (CircularRefError, MaxDepthExceededError) as e:
+            # D10-003: translate typed circular/depth errors to the documented
+            # exit 48 contract. Mirrors the schema_parser flag-collision path
+            # (schema_parser.py:111) and matches Rust/TS exit codes.
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_SCHEMA_CIRCULAR_REF)
+        except UnresolvableRefError as e:
+            # D10-003: translate unresolvable $ref errors to exit 45.
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_SCHEMA_VALIDATION_ERROR)
+        except RefResolverError as e:
+            # Unknown subclasses of RefResolverError fall through to the
+            # generic schema-validation exit code rather than leaking a
+            # traceback. Mirrors TS resolveRefs catch-all.
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(EXIT_SCHEMA_VALIDATION_ERROR)
         except Exception as e:
             logger.warning("Failed to resolve $refs in schema for '%s', using raw schema: %s", module_id, e)
             resolved_schema = input_schema

@@ -1284,3 +1284,70 @@ class TestExposureE2E:
         group = _make_grouped_group(defs, builtins=True, exposure_filter=ef)
         # The registry still has webhooks.stripe even though it's hidden from CLI
         assert group._registry.get_definition("webhooks.stripe") is not None
+
+
+class TestBuildModuleCommandRefResolverErrorTranslation:
+    """D10-003: typed RefResolverError subclasses must translate to documented
+    exit codes (48 for circular/depth, 45 for unresolvable) instead of leaking
+    a traceback through the bare ``raise`` clause.
+    """
+
+    def _module_def_with_schema(self, schema: dict):
+        module_def = MagicMock()
+        module_def.module_id = "math.add"
+        module_def.description = "Add two numbers."
+        module_def.input_schema = schema
+        module_def.annotations = None
+        module_def.tags = []
+        return module_def
+
+    def test_circular_ref_in_schema_exits_48(self):
+        """Circular $ref must surface as sys.exit(EXIT_SCHEMA_CIRCULAR_REF)."""
+        schema = {
+            "$defs": {
+                "node": {
+                    "type": "object",
+                    "properties": {"next": {"$ref": "#/$defs/node"}},
+                }
+            },
+            "type": "object",
+            "properties": {"root": {"$ref": "#/$defs/node"}},
+        }
+        module_def = self._module_def_with_schema(schema)
+        executor = _make_mock_executor()
+        with pytest.raises(SystemExit) as excinfo:
+            build_module_command(module_def, executor)
+        assert excinfo.value.code == 48
+
+    def test_unresolvable_ref_in_schema_exits_45(self):
+        """Unresolvable $ref must surface as sys.exit(EXIT_SCHEMA_VALIDATION_ERROR)."""
+        schema = {
+            "type": "object",
+            "properties": {"missing": {"$ref": "#/$defs/does_not_exist"}},
+        }
+        module_def = self._module_def_with_schema(schema)
+        executor = _make_mock_executor()
+        with pytest.raises(SystemExit) as excinfo:
+            build_module_command(module_def, executor)
+        assert excinfo.value.code == 45
+
+    def test_max_depth_in_schema_exits_48(self):
+        """MaxDepthExceededError must surface as exit 48."""
+        # Build a chain longer than max_depth=32 by referencing through 40 levels.
+        defs = {}
+        for i in range(40):
+            defs[f"l{i}"] = {
+                "type": "object",
+                "properties": {"next": {"$ref": f"#/$defs/l{i + 1}"}},
+            }
+        defs["l40"] = {"type": "string"}
+        schema = {
+            "$defs": defs,
+            "type": "object",
+            "properties": {"root": {"$ref": "#/$defs/l0"}},
+        }
+        module_def = self._module_def_with_schema(schema)
+        executor = _make_mock_executor()
+        with pytest.raises(SystemExit) as excinfo:
+            build_module_command(module_def, executor)
+        assert excinfo.value.code == 48
