@@ -59,6 +59,9 @@ class AuditLogger:
         return hashlib.sha256(salt + payload).hexdigest()
 
     def _get_user(self) -> str:
+        # Canonical fallback chain (cross-SDK parity, security.md / D11-W1):
+        # getlogin -> pwd.getpwuid(getuid).pw_name -> USER -> LOGNAME
+        # -> USERNAME -> "unknown".
         try:
             return os.getlogin()
         except OSError:
@@ -69,4 +72,9 @@ class AuditLogger:
             return pwd.getpwuid(os.getuid()).pw_name
         except (ImportError, KeyError, AttributeError):
             pass
-        return os.getenv("USER", os.getenv("USERNAME", "unknown"))
+        return (
+            os.getenv("USER")
+            or os.getenv("LOGNAME")
+            or os.getenv("USERNAME")
+            or "unknown"
+        )

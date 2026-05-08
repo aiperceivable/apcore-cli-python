@@ -80,6 +80,52 @@ class TestAuditLogger:
             result = audit_logger._get_user()
         assert result == "testuser"
 
+    def test_get_user_fallback_logname(self, monkeypatch):
+        """D11-008: LOGNAME is the third env-var fallback (USER -> LOGNAME ->
+        USERNAME -> 'unknown'), per security.md canonical chain."""
+        import pwd as _pwd
+
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.delenv("USERNAME", raising=False)
+        monkeypatch.setenv("LOGNAME", "ci-runner")
+        audit_logger = AuditLogger.__new__(AuditLogger)
+        with (
+            patch("os.getlogin", side_effect=OSError),
+            patch.object(_pwd, "getpwuid", side_effect=KeyError),
+        ):
+            result = audit_logger._get_user()
+        assert result == "ci-runner"
+
+    def test_get_user_fallback_username_last(self, monkeypatch):
+        """D11-008: USERNAME is the final env-var fallback before 'unknown'."""
+        import pwd as _pwd
+
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.delenv("LOGNAME", raising=False)
+        monkeypatch.setenv("USERNAME", "winuser")
+        audit_logger = AuditLogger.__new__(AuditLogger)
+        with (
+            patch("os.getlogin", side_effect=OSError),
+            patch.object(_pwd, "getpwuid", side_effect=KeyError),
+        ):
+            result = audit_logger._get_user()
+        assert result == "winuser"
+
+    def test_get_user_fallback_unknown_when_all_unset(self, monkeypatch):
+        """D11-008: When all env vars are unset, returns the literal 'unknown'."""
+        import pwd as _pwd
+
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.delenv("LOGNAME", raising=False)
+        monkeypatch.delenv("USERNAME", raising=False)
+        audit_logger = AuditLogger.__new__(AuditLogger)
+        with (
+            patch("os.getlogin", side_effect=OSError),
+            patch.object(_pwd, "getpwuid", side_effect=KeyError),
+        ):
+            result = audit_logger._get_user()
+        assert result == "unknown"
+
     def test_log_entry_format(self, tmp_path):
         log_path = tmp_path / "audit.jsonl"
         logger = AuditLogger(path=log_path)
