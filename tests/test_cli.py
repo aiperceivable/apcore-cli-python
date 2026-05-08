@@ -398,7 +398,7 @@ class TestMainEntryPoint:
             runner = CliRunner()
             cli = create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli")
             # Use a real subcommand — --help is an eager flag that exits before the callback runs
-            result = runner.invoke(cli, ["--log-level", "DEBUG", "completion", "bash"])
+            result = runner.invoke(cli, ["--log-level", "DEBUG", "apcli", "completion", "bash"])
             assert result.exit_code == 0
             # After invoking with --log-level DEBUG the root logger level should be DEBUG
             assert logging.getLogger().level == logging.DEBUG
@@ -434,7 +434,7 @@ class TestMainEntryPoint:
             monkeypatch.setenv("APCORE_CLI_LOGGING_LEVEL", "DEBUG")
             cli = create_cli(extensions_dir=str(tmp_path), prog_name="apcore-cli")
             runner = CliRunner()
-            result = runner.invoke(cli, ["completion", "bash"])
+            result = runner.invoke(cli, ["apcli", "completion", "bash"])
             assert result.exit_code == 0
             assert logging.getLogger().level == logging.DEBUG
         finally:

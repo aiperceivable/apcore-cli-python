@@ -470,16 +470,17 @@ class TestEnvUnset:
 
 
 # ---------------------------------------------------------------------------
-# Subprocess-level deprecation warning (spec §11.2)
+# FE-13 §11.2: deprecation shims removed in v0.8 (D9-001)
 # ---------------------------------------------------------------------------
 
 
-class TestDeprecationShims:
-    def test_list_shim_prints_warning_and_forwards(self, tmp_path):
-        """§11.2: `apcore-cli list` in standalone emits deprecation warning."""
+class TestDeprecationShimsRemoved:
+    """Root-level legacy command names no longer exist as of v0.8."""
+
+    def test_root_legacy_command_unknown_in_standalone(self, tmp_path):
+        """`apcore-cli list` (without the apcli group) must error in v0.8."""
         env = os.environ.copy()
         env.pop("APCORE_CLI_APCLI", None)
-        # Point at an empty extensions dir so discovery succeeds with 0 modules.
         argv = [
             sys.executable,
             "-m",
@@ -498,13 +499,11 @@ class TestDeprecationShims:
             timeout=10,
             env=env,
         )
-        assert "deprecated" in result.stderr.lower()
-        # The forward produced the empty-list JSON output.
-        assert result.returncode == 0
-        assert "[]" in result.stdout or result.stdout.strip() == ""
+        assert result.returncode != 0
+        assert "no such command" in result.stderr.lower() or "usage:" in result.stderr.lower()
 
-    def test_deprecation_shims_absent_in_embedded_mode(self):
-        """Spec §11.2: embedded mode doesn't get shims — `list` is not at root."""
+    def test_legacy_names_absent_in_embedded_mode(self):
+        """Embedded mode never had shims, and v0.8 standalone matches that."""
         cli = _make_embedded_cli()
         assert "list" not in cli.commands
         assert "describe" not in cli.commands
@@ -530,22 +529,20 @@ class TestExtraCommandsReservedName:
                 extra_commands=[rogue],
             )
 
-    def test_extra_command_overrides_deprecation_shim(self, tmp_path, caplog):
-        """FE-13: extra command named `list` overrides the deprecation shim."""
-        import logging as pylogging
+    def test_extra_command_named_list_installs_at_root(self, tmp_path):
+        """v0.8: with shims removed, an extra command named 'list' installs at
+        root without colliding with anything."""
 
         @click.command("list")
         def user_list():
             click.echo("user-list-output")
 
-        with caplog.at_level(pylogging.WARNING, logger="apcore_cli"):
-            cli = create_cli(
-                extensions_dir=str(tmp_path),
-                prog_name="apcore-cli",
-                extra_commands=[user_list],
-            )
+        cli = create_cli(
+            extensions_dir=str(tmp_path),
+            prog_name="apcore-cli",
+            extra_commands=[user_list],
+        )
         assert "list" in cli.commands
         result = CliRunner().invoke(cli, ["list"])
         assert result.exit_code == 0
         assert "user-list-output" in result.output
-        assert "overrides the deprecation shim" in caplog.text

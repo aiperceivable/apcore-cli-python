@@ -54,6 +54,7 @@ class TestMED1ExtensionsDirFlag:
                 "apcore_cli",
                 "--extensions-dir",
                 str(tmp_path),
+                "apcli",
                 "list",
                 "--format",
                 "json",

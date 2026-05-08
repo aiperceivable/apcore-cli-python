@@ -521,15 +521,13 @@ def create_cli(
     # Root-level --help --man support (stays at root per spec §4.1).
     configure_man_help(cli, prog_name, __version__)
 
-    # FE-13 §11.2 deprecation shims — standalone mode only. Embedded
-    # integrators' end users never see apcore-cli deprecation warnings.
-    if not registry_injected:
-        _register_deprecation_shims(cli, apcli_group, prog_name)
+    # FE-13 §11.2: deprecation shims were retired in v0.8. All built-ins now
+    # live exclusively under the ``apcli`` group; root-level legacy paths
+    # (``apcli list`` etc. without the group) no longer exist.
 
     # Extra commands from downstream projects (FE-11 §3.11). Reserved-name
-    # (`apcli`) collisions are hard-rejected. Collisions with deprecation
-    # shims yield to the user-supplied command (shim is dropped with a warning)
-    # — shims are transitional scaffolding, not a real collision.
+    # (`apcli`) collisions are hard-rejected. Other name collisions also
+    # raise — there is no shim layer to override.
     if extra_commands:
         # Reserved-name set follows the resolved built-in-group name, not the
         # static default. When a downstream branded CLI renames the group via
@@ -542,16 +540,8 @@ def create_cli(
                 msg = f"Extra command '{cmd_name}' is reserved."
                 raise ValueError(msg)
             if cmd_name and cmd_name in cli.commands:
-                existing = cli.commands[cmd_name]
-                if getattr(existing, "__is_deprecation_shim__", False):
-                    logger.warning(
-                        "extra_commands '%s' overrides the deprecation shim for the same name.",
-                        cmd_name,
-                    )
-                    del cli.commands[cmd_name]
-                else:
-                    msg = f"Extra command '{cmd_name}' conflicts with an existing command."
-                    raise ValueError(msg)
+                msg = f"Extra command '{cmd_name}' conflicts with an existing command."
+                raise ValueError(msg)
             cli.add_command(cmd)
 
     return cli
@@ -718,71 +708,3 @@ def _register_apcli_subcommands(
         registrar()
 
 
-# ---------------------------------------------------------------------------
-# FE-13 §11.2 deprecation shims (standalone-mode only)
-# ---------------------------------------------------------------------------
-
-
-_DEPRECATED_ROOT_COMMANDS: tuple[str, ...] = (
-    "list",
-    "describe",
-    "exec",
-    "init",
-    "validate",
-    "health",
-    "usage",
-    "enable",
-    "disable",
-    "reload",
-    "config",
-    "completion",
-    "describe-pipeline",
-)
-
-
-def _register_deprecation_shims(
-    root: click.Group,
-    apcli_group: click.Group,
-    prog_name: str,
-) -> None:
-    """Register thin root-level shims that forward to the ``apcli`` subcommand.
-
-    Each shim writes the spec §11.2 warning to stderr then re-enters Click's
-    dispatch loop on the ``apcli <name>`` path, preserving positional args +
-    options. The shim is tagged with ``__is_deprecation_shim__ = True`` so
-    ``extra_commands`` can override without raising a collision error.
-    """
-
-    def _make_shim(name: str, sub: click.Command) -> click.Command:
-        @click.command(
-            name=name,
-            context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
-            help=f"[DEPRECATED] Use '{prog_name} apcli {name}' instead.",
-            hidden=True,
-            add_help_option=False,
-        )
-        @click.pass_context
-        def shim(ctx: click.Context) -> None:
-            click.echo(
-                f"WARNING: '{name}' as a root-level command is deprecated. "
-                f"Use '{prog_name} apcli {name}' instead.\n"
-                f"         Will be removed in v0.8. See: "
-                f"https://aiperceivable.github.io/apcore-cli/features/builtin-group/#11-migration",
-                err=True,
-            )
-            # Forward remaining args to the apcli subcommand's own invocation
-            # path so nested sub-subcommands (`config get foo`) route correctly.
-            tail = list(ctx.args)
-            sub.main(args=tail, prog_name=f"{prog_name} apcli {name}", standalone_mode=False)
-
-        # Tag so extra_commands can recognize and replace shims.
-        shim.__is_deprecation_shim__ = True  # type: ignore[attr-defined]
-        return shim
-
-    for name in _DEPRECATED_ROOT_COMMANDS:
-        sub = apcli_group.commands.get(name)
-        if sub is None:
-            continue
-        if name in root.commands:
-            continue
-        root.add_command(_make_shim(name, sub))

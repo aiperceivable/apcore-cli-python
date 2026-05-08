@@ -118,13 +118,15 @@ class TestRegisterApcliSubcommandsEdges:
 
 
 # ---------------------------------------------------------------------------
-# Deprecation shim runtime behavior (standalone mode)
+# FE-13 §11.2: deprecation shims removed in v0.8 (D9-001)
 # ---------------------------------------------------------------------------
 
 
-class TestDeprecationShimRuntime:
-    def test_shim_forwards_and_warns(self, tmp_path):
-        """Root `apcore-cli list` writes deprecation warning + forwards to `apcli list`."""
+class TestDeprecationShimsRemoved:
+    """v0.8 retired the 13 root-level shims. ``apcli`` is now the only path."""
+
+    def test_root_legacy_command_is_unknown(self, tmp_path):
+        """Root ``apcore-cli list`` must error: shims were removed in v0.8."""
         env = os.environ.copy()
         env.pop("APCORE_CLI_APCLI", None)
         result = subprocess.run(
@@ -144,43 +146,62 @@ class TestDeprecationShimRuntime:
             timeout=10,
             env=env,
         )
+        # Click exits non-zero with "No such command" when the shim is gone.
+        assert result.returncode != 0
+        assert "no such command" in result.stderr.lower() or "usage:" in result.stderr.lower()
+
+    def test_apcli_list_still_works(self, tmp_path):
+        """The canonical ``apcli list`` path remains available."""
+        env = os.environ.copy()
+        env.pop("APCORE_CLI_APCLI", None)
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "apcore_cli",
+                "--extensions-dir",
+                str(tmp_path),
+                "apcli",
+                "list",
+                "--flat",
+                "--format",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
         assert result.returncode == 0, result.stderr
-        assert "deprecated" in result.stderr.lower()
-        assert "apcli list" in result.stderr
-        # Forwarded output should be JSON (empty list when no modules).
         assert result.stdout.strip() in ("[]", "")
 
 
 # ---------------------------------------------------------------------------
-# extra_commands override behavior (runtime)
+# extra_commands collision behavior (no shim layer)
 # ---------------------------------------------------------------------------
 
 
 class TestExtraCommandsRuntime:
-    def test_extra_command_override_runs_instead_of_shim(self, tmp_path, caplog):
-        """extra_command named 'list' replaces the deprecation shim wholesale."""
+    def test_extra_command_named_list_no_longer_collides_with_shim(self, tmp_path):
+        """Without shims at the root, an extra command named 'list' is freely
+        installed at root — it does not collide with anything."""
         from click.testing import CliRunner
 
         @click.command("list")
         def user_list() -> None:
             click.echo("user-list-was-called")
 
-        with caplog.at_level(logging.WARNING, logger="apcore_cli"):
-            cli = create_cli(
-                extensions_dir=str(tmp_path),
-                prog_name="apcore-cli",
-                extra_commands=[user_list],
-            )
-        # Override WARN got emitted by the factory.
-        assert "overrides the deprecation shim" in caplog.text
-        # The user command wins — no deprecation warning is printed.
+        cli = create_cli(
+            extensions_dir=str(tmp_path),
+            prog_name="apcore-cli",
+            extra_commands=[user_list],
+        )
         result = CliRunner().invoke(cli, ["list"])
         assert result.exit_code == 0
         assert "user-list-was-called" in result.output
-        assert "deprecated" not in result.output.lower()
 
-    def test_extra_command_collides_with_non_shim(self, tmp_path):
-        """Non-shim collision (with the `apcli` group itself) → ValueError."""
+    def test_extra_command_collides_with_apcli_group(self, tmp_path):
+        """Collision with the reserved `apcli` group still raises."""
 
         @click.command("apcli")
         def rogue() -> None:

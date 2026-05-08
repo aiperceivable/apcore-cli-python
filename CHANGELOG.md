@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.0] - 2026-05-08
 
+### Removed
+
+- **D9-001 — FE-13 §11.2 deprecation shims removed**. The 13 hidden root-level
+  shims (`list`, `describe`, `exec`, `init`, `validate`, `health`, `usage`,
+  `enable`, `disable`, `reload`, `config`, `completion`, `describe-pipeline`)
+  installed by `_register_deprecation_shims` and the `__is_deprecation_shim__`
+  collision-handling path in `extra_commands` wiring have been deleted along
+  with the `_DEPRECATED_ROOT_COMMANDS` table. Use the canonical
+  `apcli <command>` paths instead. Calls like `apcore-cli list` now exit
+  non-zero with Click's "No such command" message — the warning window
+  documented as "removed in v0.8" is closed.
+
 ### Added
 
 - **`builtin_group_name="apcli"` kwarg on `create_cli`** — downstream branded CLIs that embed apcore-cli can now expose the built-in commands under a custom namespace (e.g. `mycorp-cli admin health` instead of `mycorp-cli apcli health`). `ApcliGroup` gains a `name` parameter (with property accessor) threaded through `from_cli_config` / `from_yaml` / `_build`. Default `"apcli"` is unchanged. Validated against `/^[a-z][a-z0-9_-]*$/`; invalid values exit 2. `RESERVED_GROUP_NAMES` collision check now consults `GroupedModuleGroup._reserved_group_names` (instance attribute, defaults to the static frozenset; factory replaces with the resolved name). Env var `APCORE_CLI_APCLI` and config keys `apcli.*` deliberately do NOT rename — they are apcore-cli-internal toggles, not user-facing. Cross-SDK parity with TypeScript `createCli({ builtinGroupName })`. New `DEFAULT_BUILTIN_GROUP_NAME` constant exported from `apcore_cli.builtin_group`.

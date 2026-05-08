@@ -162,8 +162,9 @@ class LazyModuleGroup(click.Group):
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         # Root-level commands are whatever the factory has registered
-        # (post-FE-13: the `apcli` group + any deprecation shims + caller
-        # extras). Module-derived commands live on top of those.
+        # (post-FE-13 v0.8: the `apcli` group + any caller extras — the
+        # legacy root-level shims were retired). Module-derived commands
+        # live on top of those.
         registered = [name for name, cmd in self.commands.items() if not cmd.hidden]
         try:
             self._build_alias_map()
