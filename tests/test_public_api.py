@@ -49,6 +49,20 @@ def test_register_config_namespace_helper_reexported() -> None:
     assert "DEFAULTS" in apcore_cli.__all__
 
 
+def test_apcli_group_error_reexported() -> None:
+    """D1-info-1: ``ApcliGroupError`` is re-exported at the package root.
+
+    Cross-SDK parity with apcore-cli-rust which re-exports
+    ``ApcliGroupError`` from ``lib.rs``. Embedders should be able to
+    catch this typed error without reaching into ``apcore_cli.builtin_group``.
+    Must remain a ``ValueError`` subclass for back-compat.
+    """
+    from apcore_cli import ApcliGroupError
+
+    assert issubclass(ApcliGroupError, ValueError)
+    assert "ApcliGroupError" in apcore_cli.__all__
+
+
 def test_dispatcher_symbols_reexported() -> None:
     """D1-W5: core dispatcher embedder API is re-exported (parity with TS/Rust).
 

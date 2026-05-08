@@ -104,6 +104,20 @@ _ENV_VAR = "APCORE_CLI_APCLI"
 _EXIT_INVALID_CLI_INPUT = 2
 
 
+class ApcliGroupError(ValueError):
+    """Typed error for ``apcli`` built-in command group config validation.
+
+    Cross-SDK parity (D1-info-1): Rust exposes ``ApcliGroupError`` from
+    ``lib.rs`` for the same validation surface. Python raises this for
+    apcli-config validation failures (invalid built-in group ``name``,
+    invalid ``mode``, etc.) so embedders can match on a stable error
+    class.
+
+    Subclasses :class:`ValueError` to preserve back-compat for callers
+    that already catch ``ValueError``.
+    """
+
+
 # ---------------------------------------------------------------------------
 # ApcliGroup
 # ---------------------------------------------------------------------------
@@ -148,7 +162,7 @@ class ApcliGroup:
         # hyphen) and non-empty. Mirrors the same regex used to validate business
         # module group names downstream (cli.py:_build_group_map).
         if not name or not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
-            raise ValueError(
+            raise ApcliGroupError(
                 f"builtin_group_name {name!r} must match /^[a-z][a-z0-9_-]*$/ "
                 "(non-empty, lowercase, alphanumeric + '_' / '-', leading letter)."
             )
@@ -445,6 +459,7 @@ __all__ = [
     "APCLI_SUBCOMMAND_NAMES",
     "ApcliConfig",
     "ApcliGroup",
+    "ApcliGroupError",
     "ApcliMode",
     "DEFAULT_BUILTIN_GROUP_NAME",
     "RESERVED_GROUP_NAMES",

@@ -16,6 +16,7 @@ from apcore_cli.builtin_group import (
     DEFAULT_BUILTIN_GROUP_NAME,
     RESERVED_GROUP_NAMES,
     ApcliGroup,
+    ApcliGroupError,
 )
 
 # ---------------------------------------------------------------------------
@@ -328,6 +329,28 @@ class TestBuiltinGroupRename:
         for bad in ("", "Apcli", "apcli/x", "1apcli", " apcli ", "with space"):
             with pytest.raises(ValueError, match="builtin_group_name"):
                 ApcliGroup.from_cli_config(None, registry_injected=False, name=bad)
+
+    def test_invalid_name_raises_apcli_group_error(self):
+        """D1-info-1 (cross-SDK parity): invalid built-in group names raise the
+        typed ``ApcliGroupError`` (a ``ValueError`` subclass for back-compat).
+        Mirrors Rust's ``ApcliGroupError`` re-exported from ``lib.rs``.
+        """
+        with pytest.raises(ApcliGroupError, match="builtin_group_name"):
+            ApcliGroup.from_cli_config(
+                None, registry_injected=False, name="Bad-NAME"
+            )
+
+    def test_apcli_group_error_is_value_error_subclass(self):
+        """Back-compat: existing ``except ValueError`` callers must still catch
+        ``ApcliGroupError`` instances."""
+        assert issubclass(ApcliGroupError, ValueError)
+        try:
+            ApcliGroup.from_cli_config(None, registry_injected=False, name="Bad")
+        except ValueError as e:
+            # Must be the typed subclass, not bare ValueError.
+            assert isinstance(e, ApcliGroupError)
+        else:
+            pytest.fail("expected ApcliGroupError to be raised")
 
     def test_valid_names_accepted(self):
         for good in ("apcli", "admin", "built-in", "x", "a1-b_c"):

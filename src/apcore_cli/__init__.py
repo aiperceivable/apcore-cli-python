@@ -20,6 +20,7 @@ from apcore_cli.builtin_group import (
     RESERVED_GROUP_NAMES,
     ApcliConfig,
     ApcliGroup,
+    ApcliGroupError,
     ApcliMode,
 )
 from apcore_cli.config import (
@@ -110,6 +111,7 @@ __all__ = [
     # FE-13 builtin-group surface
     "ApcliConfig",
     "ApcliGroup",
+    "ApcliGroupError",
     "ApcliMode",
     "APCLI_SUBCOMMAND_NAMES",
     "RESERVED_GROUP_NAMES",
