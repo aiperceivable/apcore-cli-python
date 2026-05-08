@@ -205,8 +205,20 @@ def register_list_command(
         if sort in ("calls", "errors", "latency"):
             from apcore_cli.system_usage import sort_modules_by_usage
 
-            modules, used_data = sort_modules_by_usage(modules, sort, reverse=reverse)
+            # Audit D11-B-006 (2026-05-08): spec T-LST-04 mandates
+            # `--sort calls/errors/latency` default direction is DESCENDING.
+            # `sort_modules_by_usage` defaults `reverse=True`; pass `not reverse`
+            # so the user's `--reverse` flag flips the default rather than
+            # adopting it directly. Cross-SDK parity with Rust discovery.rs:209
+            # (`!opts.reverse`) and TS discovery.ts:186.
+            modules, used_data = sort_modules_by_usage(modules, sort, reverse=not reverse)
             if not used_data:
+                # Audit log empty for the requested period: fall back to id-sort
+                # using the user's `--reverse` flag directly (NOT inverted) —
+                # spec says `id` sort defaults ASCENDING. Without this re-sort,
+                # the data-path's `not reverse` would propagate to the fallback
+                # branch inside `sort_modules_by_usage` and produce z..a.
+                modules.sort(key=lambda m: getattr(m, "module_id", "") or "", reverse=reverse)
                 # Issue #17 AC: visible message (not just logger.warning) when
                 # the audit log has no matching entries — fresh installs, or
                 # when the user asked for usage-based sorting before the log

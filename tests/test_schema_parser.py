@@ -243,17 +243,20 @@ class TestReservedPropertyNames:
     """D10-008: schema_parser must reject reserved property names."""
 
     def test_schema_parser_rejects_format_property(self):
-        """Property 'format' must raise because it collides with --format flag."""
+        """Property 'format' must exit 48 because it collides with --format flag."""
+        # Audit D11-NEW-005 (2026-05-08): cross-SDK parity — reserved-name uses
+        # exit 48 (SCHEMA_CIRCULAR_REF), not a generic ValueError.
         schema = {"properties": {"format": {"type": "string", "description": "Output format"}}}
-        with pytest.raises((ValueError, Exception)) as exc_info:
+        with pytest.raises(SystemExit) as exc_info:
             schema_to_click_options(schema)
-        assert "format" in str(exc_info.value).lower() or "reserved" in str(exc_info.value).lower()
+        assert exc_info.value.code == 48
 
     def test_schema_parser_rejects_input_property(self):
-        """Property 'input' must raise (conflicts with --input flag)."""
+        """Property 'input' must exit 48 (conflicts with --input flag)."""
         schema = {"properties": {"input": {"type": "string"}}}
-        with pytest.raises((ValueError, Exception)):
+        with pytest.raises(SystemExit) as exc_info:
             schema_to_click_options(schema)
+        assert exc_info.value.code == 48
 
     def test_reserved_names_constant_exists(self):
         """RESERVED_PROPERTY_NAMES frozenset must exist and contain 'format' and 'input'."""

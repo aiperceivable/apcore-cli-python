@@ -86,6 +86,16 @@ def _resolve_node(
                 merged["properties"].update(resolved["properties"])
             if "required" in resolved:
                 merged["required"].extend(resolved["required"])
+        # Dedup `required` while preserving first-seen order. Cross-SDK parity
+        # with TS ref-resolver.ts (`new Set`) and Rust merge_allof (post-merge
+        # dedup). Audit D9-NEW-002 (2026-05-08).
+        seen_req: set[str] = set()
+        deduped_req: list[str] = []
+        for r in merged["required"]:
+            if r not in seen_req:
+                seen_req.add(r)
+                deduped_req.append(r)
+        merged["required"] = deduped_req
         # Copy remaining non-composition keys (skip already-handled ones)
         for k, v in node.items():
             if k not in ("allOf", "properties", "required") and k not in merged:

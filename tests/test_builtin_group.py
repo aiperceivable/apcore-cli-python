@@ -13,6 +13,7 @@ import pytest
 
 from apcore_cli.builtin_group import (
     APCLI_SUBCOMMAND_NAMES,
+    DEFAULT_BUILTIN_GROUP_NAME,
     RESERVED_GROUP_NAMES,
     ApcliGroup,
 )
@@ -267,6 +268,40 @@ class TestDisableEnv:
 # ---------------------------------------------------------------------------
 # Reserved names constant
 # ---------------------------------------------------------------------------
+
+
+class TestBuiltinGroupRename:
+    """2026-05-08 cross-SDK parity: ApcliGroup ``name=`` parameter and
+    ``create_cli(builtin_group_name=)`` kwarg let downstream branded CLIs
+    rename the built-in command group from ``apcli`` to a custom namespace.
+    """
+
+    def test_default_name_is_apcli(self):
+        g = ApcliGroup.from_cli_config(None, registry_injected=False)
+        assert g.name == DEFAULT_BUILTIN_GROUP_NAME == "apcli"
+
+    def test_custom_name_via_factory(self):
+        g = ApcliGroup.from_cli_config(
+            {"mode": "all"},
+            registry_injected=False,
+            name="admin",
+        )
+        assert g.name == "admin"
+        assert g.resolve_visibility() == "all"
+
+    def test_custom_name_via_yaml_factory(self):
+        g = ApcliGroup.from_yaml({"mode": "none"}, registry_injected=False, name="builtin")
+        assert g.name == "builtin"
+
+    def test_invalid_name_raises_value_error(self):
+        for bad in ("", "Apcli", "apcli/x", "1apcli", " apcli ", "with space"):
+            with pytest.raises(ValueError, match="builtin_group_name"):
+                ApcliGroup.from_cli_config(None, registry_injected=False, name=bad)
+
+    def test_valid_names_accepted(self):
+        for good in ("apcli", "admin", "built-in", "x", "a1-b_c"):
+            g = ApcliGroup.from_cli_config(None, registry_injected=False, name=good)
+            assert g.name == good
 
 
 class TestReservedNames:

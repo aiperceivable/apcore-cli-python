@@ -6,7 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [0.8.0] - 2026-05-07
+## [0.8.0] - 2026-05-08
+
+### Added
+
+- **`builtin_group_name="apcli"` kwarg on `create_cli`** — downstream branded CLIs that embed apcore-cli can now expose the built-in commands under a custom namespace (e.g. `mycorp-cli admin health` instead of `mycorp-cli apcli health`). `ApcliGroup` gains a `name` parameter (with property accessor) threaded through `from_cli_config` / `from_yaml` / `_build`. Default `"apcli"` is unchanged. Validated against `/^[a-z][a-z0-9_-]*$/`; invalid values exit 2. `RESERVED_GROUP_NAMES` collision check now consults `GroupedModuleGroup._reserved_group_names` (instance attribute, defaults to the static frozenset; factory replaces with the resolved name). Env var `APCORE_CLI_APCLI` and config keys `apcli.*` deliberately do NOT rename — they are apcore-cli-internal toggles, not user-facing. Cross-SDK parity with TypeScript `createCli({ builtinGroupName })`. New `DEFAULT_BUILTIN_GROUP_NAME` constant exported from `apcore_cli.builtin_group`.
+- **`_exit_on_system_error(e)` helper in `system_cmd.py`** — centralizes the canonical error→exit-code mapping for system-management subcommands, replacing 7 sites that previously used bare `sys.exit(1)` (audit D11-B-002, see Fixed).
+- **5 new tests in `tests/test_builtin_group.py`** — `TestBuiltinGroupRename` class covers default name, custom name via both factories, validation of valid/invalid name shapes (5 valid + 6 invalid forms each).
+
+### Fixed
+
+- **D11-B-006 — `discovery.py:208` sort direction inverted**. `apcli list --sort calls|errors|latency` now defaults to DESCENDING (highest call count first) per spec T-LST-04, matching Rust `discovery.rs:209` and TypeScript `discovery.ts:186`. Previously the user's raw `--reverse` flag (default False) was passed directly to `sort_modules_by_usage(..., reverse=...)`, producing ASCENDING output by default — the inverse of the spec. Fix passes `reverse=not reverse` for the data path AND adds a re-sort at the call site for the audit-log-empty fallback so id-fallback continues to default ASCENDING per spec.
+- **D11-B-002 — `system_cmd.py` collapsed every error to exit 1**. The 7 `except Exception as e: sys.exit(1)` sites bypassed Python's own `_ERROR_CODE_MAP` (canonical 44/46/47/77) — scripted operators could not distinguish "module not found" from "ACL denied" from generic failure. All 7 sites now route through the new `_exit_on_system_error(e)` helper which calls `exit_code_for_error(e)` from `apcore_cli.exit_codes`. The 4 audit-log entries previously hardcoding `exit_code=1` now log the resolved code.
+- **D11-NEW-005 — RESERVED_PROPERTY_NAMES no longer raises generic `ValueError`**. `schema_to_click_options` previously raised `ValueError` when a schema property collided with a built-in CLI option — opaque to scripted callers and inconsistent with the neighbour flag-collision branch (which already exited 48). Now writes a user-facing `Error:` line to stderr and calls `sys.exit(48)` per spec, matching TS `process.exit(EXIT_CODES.SCHEMA_CIRCULAR_REF)` and Rust `CliError::SchemaParserFailure → EXIT_SCHEMA_CIRCULAR_REF`. Tests tightened from `pytest.raises((ValueError, Exception))` to `pytest.raises(SystemExit)` with `code == 48` assertion.
+- **D9-NEW-002 — `ref_resolver.py` `allOf required` not deduplicated**. `_resolve_node`'s `allOf` branch concatenated parent `required` + each branch's `required` without dedup, producing duplicate entries in the merged schema's `required` array. JSON Schema validators ignore duplicates so observable validation behaviour was unchanged, but cross-SDK byte-comparison tooling (and the `anyOf`/`oneOf` paths, which already deduped) flagged the divergence. Fix: explicit seen-set dedup preserving first-seen order, matching TS `[...new Set(...)]` and Rust `merge_allof`.
 
 ### Changed
 

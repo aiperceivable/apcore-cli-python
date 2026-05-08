@@ -212,6 +212,12 @@ class GroupedModuleGroup(LazyModuleGroup):
         self._top_level_modules: dict[str, tuple[str, Any]] = {}
         self._group_cache: dict[str, _LazyGroup] = {}
         self._group_map_built: bool = False
+        # Names that business modules MUST NOT claim. Default mirrors the
+        # static :data:`RESERVED_GROUP_NAMES` constant (= {"apcli"}); when
+        # ``create_cli`` is invoked with ``builtin_group_name`` overridden,
+        # the factory replaces this with ``frozenset({apcli_cfg.name})``
+        # so the collision check fires against the renamed group too.
+        self._reserved_group_names: frozenset[str] = RESERVED_GROUP_NAMES
 
     @staticmethod
     def _resolve_group(module_id: str, descriptor: Any) -> tuple[str | None, str]:
@@ -263,12 +269,12 @@ class GroupedModuleGroup(LazyModuleGroup):
                 # with code 2 per spec §7 FR-13-09. UsageError must propagate
                 # past the below try/except so test fixtures and live CLI see
                 # the intended failure path.
-                if group is not None and group in RESERVED_GROUP_NAMES:
+                if group is not None and group in self._reserved_group_names:
                     raise click.UsageError(
                         f"Module '{module_id}': group name '{group}' is reserved. "
                         f"Use a different CLI alias or set display.cli.group to another value."
                     )
-                if group is None and cmd in RESERVED_GROUP_NAMES:
+                if group is None and cmd in self._reserved_group_names:
                     raise click.UsageError(
                         f"Module '{module_id}': top-level CLI name '{cmd}' is reserved. Use a different CLI alias."
                     )

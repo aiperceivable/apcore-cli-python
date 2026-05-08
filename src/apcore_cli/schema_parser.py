@@ -99,10 +99,16 @@ def schema_to_click_options(schema: dict, max_help_length: int = 1000) -> list[c
 
     for prop_name, prop_schema in properties.items():
         if prop_name in RESERVED_PROPERTY_NAMES:
-            raise ValueError(
-                f"Schema property '{prop_name}' is reserved and conflicts with a built-in CLI option. "
-                "Rename the property."
+            # Cross-SDK parity: align with neighbour flag-collision behaviour
+            # (sys.exit(48)) and TS / Rust schema_parser. Audit D11-NEW-005
+            # (2026-05-08). Spec: docs/features/schema-parser.md Contract:
+            # schema_to_click_options Errors.
+            click.echo(
+                f"Error: Schema property '{prop_name}' is reserved and "
+                "conflicts with a built-in CLI option. Rename the property.",
+                err=True,
             )
+            sys.exit(48)
 
         flag_name = "--" + prop_name.replace("_", "-")
 

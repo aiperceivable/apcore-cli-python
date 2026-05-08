@@ -18,10 +18,7 @@ from typing import Any
 
 import click
 
-from apcore_cli.builtin_group import (
-    RESERVED_GROUP_NAMES,
-    ApcliGroup,
-)
+from apcore_cli.builtin_group import ApcliGroup
 from apcore_cli.cli import GroupedModuleGroup, set_audit_logger, set_verbose_help
 from apcore_cli.config import ConfigResolver
 from apcore_cli.discovery import (
@@ -78,6 +75,7 @@ def create_cli(
     allowed_prefixes: list[str] | None = None,
     version: str | None = None,
     description: str | None = None,
+    builtin_group_name: str = "apcli",
 ) -> click.Group:
     """Create the CLI application.
 
@@ -101,8 +99,9 @@ def create_cli(
                   registry, skips Executor construction. If omitted but registry
                   is provided, an Executor is built from the given registry.
         extra_commands: Extra Click commands to add to the CLI root (FE-11 §3.11).
-                        Names must not collide with RESERVED_GROUP_NAMES (i.e. 'apcli')
-                        or any existing top-level command. Collisions with deprecation
+                        Names must not collide with the resolved built-in-group
+                        name (default 'apcli'; see ``builtin_group_name``) or any
+                        existing top-level command. Collisions with deprecation
                         shims are detected and raise ValueError. Note: BUILTIN_COMMANDS
                         was retired in v0.7.0; see cli.py for the retirement notice.
         app: APCore unified client (apcore >= 0.18.0). Mutually exclusive with
@@ -137,6 +136,19 @@ def create_cli(
                * ``None`` — falls back to ``apcore.yaml``'s ``apcli:`` block,
                  then ``APCORE_CLI_APCLI`` env var, then auto-detect
                  (standalone → visible, embedded → hidden).
+        builtin_group_name: Override the name of the built-in command group
+                            (default ``"apcli"``). Downstream branded CLIs
+                            that want their built-ins under a custom
+                            namespace (e.g. ``mycorp-cli admin health``)
+                            pass a different value here. Must match
+                            ``/^[a-z][a-z0-9_-]*$/`` — non-empty, lowercase,
+                            alphanumeric + ``_`` / ``-``. Invalid values
+                            cause exit code 2. Note: env var
+                            ``APCORE_CLI_APCLI`` and config keys ``apcli.*``
+                            remain stable regardless of this rename — they
+                            are apcore-cli-internal toggles, not user-facing.
+                            Mirrors TS ``createCli({builtinGroupName})``.
+                            Cross-SDK parity: 2026-05-08.
     """
     if app is not None and (registry is not None or executor is not None):
         raise ValueError("app is mutually exclusive with registry/executor")
@@ -357,15 +369,36 @@ def create_cli(
     #   3) apcore.yaml via ConfigResolver.resolve_object (Tier 3).
     try:
         if isinstance(apcli, ApcliGroup):
+            # Caller supplied a pre-built ApcliGroup. Honour its name verbatim;
+            # if `builtin_group_name` was also passed and disagrees, surface the
+            # conflict rather than silently picking a winner — both came from
+            # the same caller and the kwarg is redundant in this branch.
+            if apcli.name != builtin_group_name and builtin_group_name != "apcli":
+                raise TypeError(
+                    f"builtin_group_name={builtin_group_name!r} conflicts with the "
+                    f"name on the supplied ApcliGroup ({apcli.name!r}). Pass only one."
+                )
             apcli_cfg = apcli
         elif isinstance(apcli, bool | dict):
-            apcli_cfg = ApcliGroup.from_cli_config(apcli, registry_injected=registry_injected)
+            apcli_cfg = ApcliGroup.from_cli_config(
+                apcli,
+                registry_injected=registry_injected,
+                name=builtin_group_name,
+            )
         elif apcli is None:
             yaml_val = config.resolve_object("apcli")
-            apcli_cfg = ApcliGroup.from_yaml(yaml_val, registry_injected=registry_injected)
+            apcli_cfg = ApcliGroup.from_yaml(
+                yaml_val,
+                registry_injected=registry_injected,
+                name=builtin_group_name,
+            )
         else:
             raise TypeError(f"apcli: expected bool, dict, ApcliGroup, or None; got {type(apcli).__name__}")
     except TypeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(2)
+    except ValueError as e:
+        # ApcliGroup name validation rejected `builtin_group_name`.
         click.echo(f"Error: {e}", err=True)
         sys.exit(2)
 
@@ -461,13 +494,19 @@ def create_cli(
 
     # Build the apcli sub-group. `hidden` controls root --help rendering only
     # (spec §4.1 / §4.11): the group and its subcommands remain reachable via
-    # `<cli> apcli ...` regardless.
+    # `<cli> <builtin-group-name> ...` regardless. Group name resolves from
+    # `apcli_cfg.name` so downstream branded CLIs that overrode
+    # `builtin_group_name` see their custom namespace.
     apcli_group = click.Group(
-        name="apcli",
+        name=apcli_cfg.name,
         help="Built-in commands.",
         hidden=not apcli_cfg.is_group_visible(),
     )
     cli.add_command(apcli_group)
+    # Tell GroupedModuleGroup which name(s) are reserved for collision checks.
+    # When the caller renames the built-in group, business modules must not be
+    # allowed to claim the new name either.
+    cli._reserved_group_names = frozenset({apcli_cfg.name})  # type: ignore[attr-defined]
 
     # Dispatch the 13-entry subcommand registrar table (FE-13 §4.9).
     _register_apcli_subcommands(
@@ -492,9 +531,14 @@ def create_cli(
     # shims yield to the user-supplied command (shim is dropped with a warning)
     # — shims are transitional scaffolding, not a real collision.
     if extra_commands:
+        # Reserved-name set follows the resolved built-in-group name, not the
+        # static default. When a downstream branded CLI renames the group via
+        # ``builtin_group_name``, an extra_commands entry that shadows the
+        # renamed group is the same kind of collision and is rejected here.
+        _reserved_for_extra: frozenset[str] = frozenset({apcli_cfg.name})
         for cmd in extra_commands:
             cmd_name = getattr(cmd, "name", None)
-            if cmd_name and cmd_name in RESERVED_GROUP_NAMES:
+            if cmd_name and cmd_name in _reserved_for_extra:
                 msg = f"Extra command '{cmd_name}' is reserved."
                 raise ValueError(msg)
             if cmd_name and cmd_name in cli.commands:

@@ -128,8 +128,10 @@ class TestSchemaToFlagsIntegration:
         assert inputs["a"] == 99  # CLI overrides STDIN
         assert inputs["b"] == 10
 
-    def test_builtin_name_collision_exits_2(self):
-        # A schema property named 'format' collides with the built-in --format option
+    def test_builtin_name_collision_exits_48(self):
+        # A schema property named 'format' collides with the built-in --format option.
+        # Audit D11-NEW-005 (2026-05-08): cross-SDK parity — exit 48
+        # (SCHEMA_CIRCULAR_REF) for both reserved-name and flag-collision.
         module_def = _make_module_def(
             input_schema={
                 "properties": {"format": {"type": "string"}},
@@ -139,7 +141,7 @@ class TestSchemaToFlagsIntegration:
         executor = MagicMock()
         with pytest.raises(SystemExit) as exc_info:
             build_module_command(module_def, executor)
-        assert exc_info.value.code == 2
+        assert exc_info.value.code == 48
 
     def test_exec_result_table_format(self):
         module_def = _make_module_def()

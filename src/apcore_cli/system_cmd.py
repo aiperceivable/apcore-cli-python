@@ -17,12 +17,13 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from typing import Any
+from typing import Any, NoReturn
 
 import click
 
 import apcore_cli.cli as _cli_module
 from apcore_cli.approval import check_approval
+from apcore_cli.exit_codes import exit_code_for_error
 from apcore_cli.output import format_exec_result, resolve_format
 
 logger = logging.getLogger("apcore_cli.system_cmd")
@@ -31,6 +32,19 @@ logger = logging.getLogger("apcore_cli.system_cmd")
 def _call_system_module(executor: Any, module_id: str, inputs: dict[str, Any]) -> Any:
     """Call a system module and return the result."""
     return executor.call(module_id, inputs)
+
+
+def _exit_on_system_error(e: Exception) -> NoReturn:
+    """Print user-facing error and exit with the canonical exit code for `e`.
+
+    Cross-SDK parity (audit D11-B-002, 2026-05-08): use the canonical
+    error→exit-code mapping (44 module-not-found, 46 approval-denied,
+    47 config-invalid, 77 ACL-denied, etc.) instead of collapsing every
+    error to exit 1. Mirrors Rust ``cli::map_module_error_to_exit_code``
+    and TS ``exitCodeForError``.
+    """
+    click.echo(f"Error: {e}", err=True)
+    sys.exit(exit_code_for_error(e))
 
 
 def _check_system_approval(executor: Any, module_id: str, auto_approve: bool) -> None:
@@ -187,8 +201,7 @@ def register_health_command(apcli_group: click.Group, executor: Any) -> None:
                 else:
                     _format_health_summary_tty(result)
         except Exception as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+            _exit_on_system_error(e)
 
     _ = health_cmd
 
@@ -225,8 +238,7 @@ def register_usage_command(apcli_group: click.Group, executor: Any) -> None:
             else:
                 _format_usage_summary_tty(result)
         except Exception as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+            _exit_on_system_error(e)
 
     _ = usage_cmd
 
@@ -276,11 +288,10 @@ def register_enable_command(apcli_group: click.Group, executor: Any) -> None:
                     "system.control.toggle_feature",
                     {"module_id": module_id, "enabled": True},
                     "error",
-                    1,
+                    exit_code_for_error(e),
                     duration_ms,
                 )
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+            _exit_on_system_error(e)
 
     _ = enable_cmd
 
@@ -330,11 +341,10 @@ def register_disable_command(apcli_group: click.Group, executor: Any) -> None:
                     "system.control.toggle_feature",
                     {"module_id": module_id, "enabled": False},
                     "error",
-                    1,
+                    exit_code_for_error(e),
                     duration_ms,
                 )
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+            _exit_on_system_error(e)
 
     _ = disable_cmd
 
@@ -379,9 +389,14 @@ def register_reload_command(apcli_group: click.Group, executor: Any) -> None:
             duration_ms = int((time.monotonic() - audit_start) * 1000)
             _al = _cli_module._audit_logger
             if _al is not None:
-                _al.log_execution("system.control.reload_module", {"module_id": module_id}, "error", 1, duration_ms)
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+                _al.log_execution(
+                    "system.control.reload_module",
+                    {"module_id": module_id},
+                    "error",
+                    exit_code_for_error(e),
+                    duration_ms,
+                )
+            _exit_on_system_error(e)
 
     _ = reload_cmd
 
@@ -403,8 +418,7 @@ def register_config_command(apcli_group: click.Group, executor: Any) -> None:
             value = Config().get(key)
             click.echo(f"{key} = {value!r}")
         except Exception as e:
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+            _exit_on_system_error(e)
 
     @config_group.command("set")
     @click.argument("key")
@@ -448,9 +462,10 @@ def register_config_command(apcli_group: click.Group, executor: Any) -> None:
             duration_ms = int((time.monotonic() - audit_start) * 1000)
             _al = _cli_module._audit_logger
             if _al is not None:
-                _al.log_execution("system.control.update_config", {"key": key}, "error", 1, duration_ms)
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(1)
+                _al.log_execution(
+                    "system.control.update_config", {"key": key}, "error", exit_code_for_error(e), duration_ms
+                )
+            _exit_on_system_error(e)
 
     _ = config_get_cmd
     _ = config_set_cmd

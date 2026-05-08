@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 from typing import Any, Literal
 
@@ -34,11 +35,22 @@ ApcliMode = Literal["auto", "all", "none", "include", "exclude"]
 #: Resolved (non-sentinel) visibility modes.
 ResolvedApcliMode = Literal["all", "none", "include", "exclude"]
 
-#: Set of group names reserved by apcore-cli; enforced by
-#: :class:`apcore_cli.cli.GroupedModuleGroup` when building the registry-driven
-#: command surface. Business modules whose alias/top-level/group name collides
-#: with a reserved entry are rejected at import time with exit code 2.
-RESERVED_GROUP_NAMES: frozenset[str] = frozenset({"apcli"})
+#: Default name of the built-in command group. Overridable per :class:`ApcliGroup`
+#: instance via the ``name`` constructor parameter or via
+#: :func:`apcore_cli.create_cli`'s ``builtin_group_name`` kwarg. Downstream
+#: branded CLIs that want their built-ins under a different namespace
+#: (e.g. ``mycorp-cli admin health`` instead of ``mycorp-cli apcli health``)
+#: should set the kwarg; standalone apcore-cli leaves the default.
+DEFAULT_BUILTIN_GROUP_NAME: str = "apcli"
+
+#: Set of group names reserved by apcore-cli when no rename is configured.
+#: Enforced by :class:`apcore_cli.cli.GroupedModuleGroup` when building the
+#: registry-driven command surface. Business modules whose alias/top-level/group
+#: name collides with a reserved entry are rejected at import time with exit
+#: code 2. When ``builtin_group_name`` is overridden, the live reserved set is
+#: ``frozenset({apcli_group.name})`` and is applied per-instance — see
+#: :attr:`GroupedModuleGroup._reserved_group_names`.
+RESERVED_GROUP_NAMES: frozenset[str] = frozenset({DEFAULT_BUILTIN_GROUP_NAME})
 
 _VALID_USER_MODES: frozenset[str] = frozenset({"all", "none", "include", "exclude"})
 
@@ -93,6 +105,7 @@ class ApcliGroup:
         "_disable_env",
         "_registry_injected",
         "_from_cli_config",
+        "_name",
     )
 
     def __init__(
@@ -103,6 +116,7 @@ class ApcliGroup:
         disable_env: bool = False,
         registry_injected: bool = False,
         from_cli_config: bool = False,
+        name: str = DEFAULT_BUILTIN_GROUP_NAME,
     ) -> None:
         self._mode: ApcliMode = mode
         self._include: list[str] = list(include) if include else []
@@ -110,6 +124,26 @@ class ApcliGroup:
         self._disable_env: bool = bool(disable_env)
         self._registry_injected: bool = bool(registry_injected)
         self._from_cli_config: bool = bool(from_cli_config)
+        # Validation: name must be shell-safe (lowercase, alphanumeric + underscore +
+        # hyphen) and non-empty. Mirrors the same regex used to validate business
+        # module group names downstream (cli.py:_build_group_map).
+        if not name or not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
+            raise ValueError(
+                f"builtin_group_name {name!r} must match /^[a-z][a-z0-9_-]*$/ "
+                "(non-empty, lowercase, alphanumeric + '_' / '-', leading letter)."
+            )
+        self._name: str = name
+
+    @property
+    def name(self) -> str:
+        """Resolved name for the built-in command group (default ``"apcli"``).
+
+        Set via the ``name=`` constructor parameter or, indirectly, via
+        :func:`apcore_cli.create_cli`'s ``builtin_group_name`` kwarg. Downstream
+        branded CLIs use this to expose built-ins under a custom namespace
+        without forking the SDK.
+        """
+        return self._name
 
     # ---- Factories ---------------------------------------------------------
 
@@ -119,14 +153,19 @@ class ApcliGroup:
         config: bool | dict[str, Any] | None,
         *,
         registry_injected: bool,
+        name: str = DEFAULT_BUILTIN_GROUP_NAME,
     ) -> ApcliGroup:
         """Tier 1 constructor — value came from ``create_cli(apcli=...)``.
 
         A non-auto mode from this tier wins outright over the env var and
         ``apcore.yaml``. Boolean / dict / ``None`` are all accepted; other
         types raise :class:`TypeError` (the factory catches and exits 2).
+
+        ``name`` is the resolved built-in-group name (default ``"apcli"``);
+        forwarded from :func:`apcore_cli.create_cli`'s ``builtin_group_name``
+        kwarg so downstream branded CLIs can rename the group.
         """
-        return cls._build(config, registry_injected=registry_injected, from_cli_config=True)
+        return cls._build(config, registry_injected=registry_injected, from_cli_config=True, name=name)
 
     @classmethod
     def from_yaml(
@@ -134,6 +173,7 @@ class ApcliGroup:
         config: Any,
         *,
         registry_injected: bool,
+        name: str = DEFAULT_BUILTIN_GROUP_NAME,
     ) -> ApcliGroup:
         """Tier 3 constructor — value came from ``apcore.yaml``.
 
@@ -150,7 +190,7 @@ class ApcliGroup:
                 type(config).__name__,
             )
             config = None
-        return cls._build(config, registry_injected=registry_injected, from_cli_config=False)
+        return cls._build(config, registry_injected=registry_injected, from_cli_config=False, name=name)
 
     @classmethod
     def try_from_yaml(
@@ -183,6 +223,7 @@ class ApcliGroup:
         *,
         registry_injected: bool,
         from_cli_config: bool,
+        name: str = DEFAULT_BUILTIN_GROUP_NAME,
     ) -> ApcliGroup:
         if config is True:
             return cls(
@@ -190,6 +231,7 @@ class ApcliGroup:
                 disable_env=False,
                 registry_injected=registry_injected,
                 from_cli_config=from_cli_config,
+                name=name,
             )
         if config is False:
             return cls(
@@ -197,6 +239,7 @@ class ApcliGroup:
                 disable_env=False,
                 registry_injected=registry_injected,
                 from_cli_config=from_cli_config,
+                name=name,
             )
         if config is None:
             # Auto-detect (internal sentinel; never returned from resolve).
@@ -205,6 +248,7 @@ class ApcliGroup:
                 disable_env=False,
                 registry_injected=registry_injected,
                 from_cli_config=from_cli_config,
+                name=name,
             )
         if not isinstance(config, dict):
             # create_cli() ultimately raises TypeError for programmatic
@@ -256,6 +300,7 @@ class ApcliGroup:
             disable_env=disable_env,
             registry_injected=registry_injected,
             from_cli_config=from_cli_config,
+            name=name,
         )
 
     @staticmethod
