@@ -706,5 +706,3 @@ def _register_apcli_subcommands(
             continue
 
         registrar()
-
-

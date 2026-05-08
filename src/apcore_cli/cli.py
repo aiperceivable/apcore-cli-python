@@ -16,8 +16,8 @@ import jsonschema
 from apcore_cli.approval import check_approval
 from apcore_cli.builtin_group import RESERVED_GROUP_NAMES as RESERVED_GROUP_NAMES  # noqa: PLC0414
 from apcore_cli.display_helpers import get_display as _get_display
-from apcore_cli.output import format_exec_result
 from apcore_cli.exit_codes import EXIT_SCHEMA_CIRCULAR_REF, EXIT_SCHEMA_VALIDATION_ERROR
+from apcore_cli.output import format_exec_result
 from apcore_cli.ref_resolver import (
     CircularRefError,
     MaxDepthExceededError,

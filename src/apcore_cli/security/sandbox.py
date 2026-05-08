@@ -266,9 +266,7 @@ class Sandbox:
                 proc.kill()
                 t_out.join(timeout=1.0)
                 t_err.join(timeout=1.0)
-                raise ModuleExecutionError(
-                    f"Error: Module '{module_id}' timed out in sandbox."
-                ) from None
+                raise ModuleExecutionError(f"Error: Module '{module_id}' timed out in sandbox.") from None
 
         t_out.join(timeout=1.0)
         t_err.join(timeout=1.0)

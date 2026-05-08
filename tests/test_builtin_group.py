@@ -179,6 +179,37 @@ class TestEnvVarParsing:
         g = ApcliGroup.from_yaml(False, registry_injected=False)
         assert g.resolve_visibility() == "none"
 
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("  show  ", "all"),
+            ("\tshow\n", "all"),
+            (" 1 ", "all"),
+            (" TRUE ", "all"),
+            ("  HIDE  ", "none"),
+            (" false\n", "none"),
+            (" 0 ", "none"),
+        ],
+    )
+    def test_env_value_is_trimmed_on_read(self, monkeypatch, value, expected):
+        """D10-info-1 (cross-SDK parity): surrounding whitespace must NOT cause a
+        Tier-3/Tier-4 silent fall-through. Spec invariant 2: env-var parser is
+        case-insensitive AND trim-on-read.
+        """
+        monkeypatch.setenv("APCORE_CLI_APCLI", value)
+        # Tier-3 yaml says the opposite of the env var so we can verify the env
+        # parser actually consumed the (whitespace-padded) value.
+        yaml = False if expected == "all" else True
+        g = ApcliGroup.from_yaml(yaml, registry_injected=False)
+        assert g.resolve_visibility() == expected
+
+    def test_env_whitespace_only_falls_through(self, monkeypatch):
+        """A whitespace-only env var should be treated as empty/unset."""
+        monkeypatch.setenv("APCORE_CLI_APCLI", "   ")
+        g = ApcliGroup.from_yaml(False, registry_injected=False)
+        # No env override → yaml False wins → "none".
+        assert g.resolve_visibility() == "none"
+
 
 # ---------------------------------------------------------------------------
 # 4-tier precedence (spec §4.4)

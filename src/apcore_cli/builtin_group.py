@@ -73,6 +73,7 @@ class ApcliConfig(TypedDict, total=False):
     disable_env: bool
     name: str
 
+
 #: Canonical set of apcli subcommand names. Declarative mirror of the
 #: registrar table in :func:`apcore_cli.factory._register_apcli_subcommands`.
 #: Used by :meth:`ApcliGroup._normalize_list` to warn on unknown entries in
@@ -411,16 +412,23 @@ class ApcliGroup:
 
     @staticmethod
     def _parse_env(raw: str | None) -> ResolvedApcliMode | None:
-        """Parse ``APCORE_CLI_APCLI``. Case-insensitive.
+        """Parse ``APCORE_CLI_APCLI``. Case-insensitive and trim-on-read.
 
         - ``show`` / ``1`` / ``true`` → ``"all"``
         - ``hide`` / ``0`` / ``false`` → ``"none"``
-        - Empty / unset → ``None``
+        - Empty / unset / whitespace-only → ``None``
         - Anything else → warn and return ``None``
+
+        Per builtin-group.md invariant 2: a leading/trailing space must NOT
+        cause a Tier-3/Tier-4 fall-through silently. Cross-SDK parity with
+        Rust/TS implementations.
         """
-        if raw is None or raw == "":
+        if raw is None:
             return None
-        normalized = raw.lower()
+        # Trim-on-read: surrounding whitespace must not silently fall through.
+        normalized = raw.strip().lower()
+        if normalized == "":
+            return None
         if normalized in ("show", "1", "true"):
             return "all"
         if normalized in ("hide", "0", "false"):

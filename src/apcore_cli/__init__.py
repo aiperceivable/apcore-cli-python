@@ -31,6 +31,14 @@ from apcore_cli.config import (
 # Config Bus namespace registration (apcore >= 0.15.0).
 # Side-effect at import time; helper is also exported for explicit re-registration.
 register_config_namespace()
+from apcore_cli.cli import (
+    build_module_command,
+    collect_input,
+    set_audit_logger,
+    set_docs_url,
+    set_verbose_help,
+    validate_module_id,
+)
 from apcore_cli.discovery import (
     register_describe_command,
     register_exec_command,
@@ -62,14 +70,6 @@ from apcore_cli.exit_codes import (
     EXIT_SIGINT,
     EXIT_SUCCESS,
     exit_code_for_error,
-)
-from apcore_cli.cli import (
-    build_module_command,
-    collect_input,
-    set_audit_logger,
-    set_docs_url,
-    set_verbose_help,
-    validate_module_id,
 )
 from apcore_cli.exposure import ExposureFilter
 from apcore_cli.factory import create_cli
