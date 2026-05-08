@@ -8,23 +8,6 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"
 
-# Config Bus namespace registration (apcore >= 0.15.0)
-try:
-    from apcore import Config
-
-    Config.register_namespace(
-        name="apcore-cli",
-        schema=None,
-        env_prefix="APCORE_CLI",
-        defaults={
-            "help_text_max_length": 1000,
-            "approval_timeout": 60,
-            "group_depth": 1,
-        },
-    )
-except (ImportError, AttributeError):
-    pass  # apcore < 0.15.0 or not installed
-
 # Public API re-exports
 from apcore_cli.approval import (
     ApprovalDeniedError,
@@ -33,11 +16,21 @@ from apcore_cli.approval import (
     check_approval,
 )
 from apcore_cli.builtin_group import (
+    APCLI_SUBCOMMAND_NAMES,
     RESERVED_GROUP_NAMES,
+    ApcliConfig,
     ApcliGroup,
     ApcliMode,
 )
-from apcore_cli.config import ConfigResolver
+from apcore_cli.config import (
+    DEFAULTS,
+    ConfigResolver,
+    register_config_namespace,
+)
+
+# Config Bus namespace registration (apcore >= 0.15.0).
+# Side-effect at import time; helper is also exported for explicit re-registration.
+register_config_namespace()
 from apcore_cli.discovery import (
     register_describe_command,
     register_exec_command,
@@ -69,6 +62,14 @@ from apcore_cli.exit_codes import (
     EXIT_SIGINT,
     EXIT_SUCCESS,
     exit_code_for_error,
+)
+from apcore_cli.cli import (
+    build_module_command,
+    collect_input,
+    set_audit_logger,
+    set_docs_url,
+    set_verbose_help,
+    validate_module_id,
 )
 from apcore_cli.exposure import ExposureFilter
 from apcore_cli.factory import create_cli
@@ -107,8 +108,10 @@ __all__ = [
     # Factory
     "create_cli",
     # FE-13 builtin-group surface
+    "ApcliConfig",
     "ApcliGroup",
     "ApcliMode",
+    "APCLI_SUBCOMMAND_NAMES",
     "RESERVED_GROUP_NAMES",
     # FE-11 approval
     "CliApprovalHandler",
@@ -124,10 +127,19 @@ __all__ = [
     "resolve_format",
     # Config / security
     "ConfigResolver",
+    "DEFAULTS",
+    "register_config_namespace",
     "AuditLogger",
     "AuthProvider",
     "ConfigEncryptor",
     "Sandbox",
+    # Core dispatcher (parity with TS/Rust embedder API).
+    "build_module_command",
+    "collect_input",
+    "validate_module_id",
+    "set_audit_logger",
+    "set_verbose_help",
+    "set_docs_url",
     # Per-subcommand registrar factories (parity with TS/Rust embedder API).
     "register_list_command",
     "register_describe_command",

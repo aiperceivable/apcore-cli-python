@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 logger = logging.getLogger("apcore_cli.builtin_group")
 
@@ -53,6 +53,25 @@ DEFAULT_BUILTIN_GROUP_NAME: str = "apcli"
 RESERVED_GROUP_NAMES: frozenset[str] = frozenset({DEFAULT_BUILTIN_GROUP_NAME})
 
 _VALID_USER_MODES: frozenset[str] = frozenset({"all", "none", "include", "exclude"})
+
+
+class ApcliConfig(TypedDict, total=False):
+    """Typed shape of the ``apcli`` config block accepted by
+    :meth:`ApcliGroup.from_cli_config` / :meth:`ApcliGroup.from_yaml`.
+
+    Mirrors the ``ApcliConfig`` type in apcore-cli-typescript and the
+    ``ApcliConfig`` struct in apcore-cli-rust so embedders have cross-SDK
+    parity for static typing. Note that the runtime accepts ``bool | dict |
+    None`` — the ``bool`` form short-circuits ``mode`` to ``"all"`` /
+    ``"none"`` and the ``None`` form means "auto-detect"; only the dict form
+    matches this TypedDict.
+    """
+
+    mode: ResolvedApcliMode
+    include: list[str]
+    exclude: list[str]
+    disable_env: bool
+    name: str
 
 #: Canonical set of apcli subcommand names. Declarative mirror of the
 #: registrar table in :func:`apcore_cli.factory._register_apcli_subcommands`.
@@ -416,8 +435,10 @@ class ApcliGroup:
 
 __all__ = [
     "APCLI_SUBCOMMAND_NAMES",
+    "ApcliConfig",
     "ApcliGroup",
     "ApcliMode",
+    "DEFAULT_BUILTIN_GROUP_NAME",
     "RESERVED_GROUP_NAMES",
     "ResolvedApcliMode",
 ]

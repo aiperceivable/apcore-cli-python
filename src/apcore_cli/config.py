@@ -10,6 +10,37 @@ import yaml
 
 logger = logging.getLogger("apcore_cli.config")
 
+# Module-level Config Bus namespace defaults for the apcore-cli namespace.
+# Mirrors the `DEFAULTS` export shipped by apcore-cli-typescript and the
+# `DEFAULTS` const in apcore-cli-rust so embedders have cross-SDK parity.
+DEFAULTS: dict[str, Any] = {
+    "help_text_max_length": 1000,
+    "approval_timeout": 60,
+    "group_depth": 1,
+}
+
+
+def register_config_namespace() -> bool:
+    """Register the apcore-cli Config Bus namespace with apcore (>= 0.15.0).
+
+    Public helper mirroring apcore-cli-typescript's ``registerConfigNamespace``
+    and apcore-cli-rust's equivalent registration call site so embedders can
+    invoke registration explicitly. Returns ``True`` when registration
+    succeeded, ``False`` when apcore is missing or too old (which silently
+    skips registration — matching the prior inline behaviour).
+    """
+    try:
+        from apcore import Config
+    except (ImportError, AttributeError):
+        return False
+    Config.register_namespace(
+        name="apcore-cli",
+        schema=None,
+        env_prefix="APCORE_CLI",
+        defaults=DEFAULTS,
+    )
+    return True
+
 
 class ConfigResolver:
     """Resolves configuration values using 4-tier precedence:
