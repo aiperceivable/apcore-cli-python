@@ -131,6 +131,32 @@ class TestConfigEncryptor:
         result = enc.retrieve(v1_ref, "auth.api_key")
         assert result == "legacy_secret"
 
+    def test_v1_decrypt_uses_passphrase_when_set(self):
+        """D11-003: when APCORE_CLI_CONFIG_PASSPHRASE is set, v1 ciphertexts
+        encrypted under that passphrase must decrypt — Python previously
+        hard-coded the host:user material and silently failed for v1 payloads
+        written by Rust/TS under a passphrase.
+        """
+        import base64 as _b64
+        import hashlib as _hl
+        import os as _os
+
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+        passphrase = "shared-passphrase-from-rust-or-ts"
+        static_salt = b"apcore-cli-config-v1"
+        key = _hl.pbkdf2_hmac("sha256", passphrase.encode("utf-8"), static_salt, iterations=600_000)
+        nonce = _os.urandom(12)
+        encryptor = Cipher(algorithms.AES(key), modes.GCM(nonce)).encryptor()
+        ct = encryptor.update(b"cross_sdk_secret") + encryptor.finalize()
+        tag = encryptor.tag
+        v1_ref = f"enc:{_b64.b64encode(nonce + tag + ct).decode()}"
+
+        enc = ConfigEncryptor()
+        with patch.dict(_os.environ, {"APCORE_CLI_CONFIG_PASSPHRASE": passphrase}, clear=False):
+            result = enc.retrieve(v1_ref, "auth.api_key")
+        assert result == "cross_sdk_secret"
+
     def test_config_encryptor_uses_passphrase_env_var(self):
         """D10-004: Key derived with APCORE_CLI_CONFIG_PASSPHRASE must differ from hostname:user key."""
         import os

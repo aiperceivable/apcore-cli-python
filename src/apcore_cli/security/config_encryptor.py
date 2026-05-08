@@ -128,22 +128,36 @@ class ConfigEncryptor:
     def _aes_decrypt_v1(self, data: bytes) -> str:
         """Decrypt legacy v1-format ciphertext (nonce(12) + tag(16) + ct).
 
-        Tries 600k iterations first (Rust-written v1), then 100k (early Python/TS).
+        D11-003: tries each available key material in turn — when
+        ``APCORE_CLI_CONFIG_PASSPHRASE`` is set, the passphrase-derived key
+        is attempted first so v1 payloads written by Rust/TS under a
+        passphrase decrypt cleanly. The host:user fallback mirrors v1
+        ciphertexts written before passphrase support existed. Within each
+        material, both 600k (Rust-written v1) and 100k (early Python/TS)
+        iteration counts are tried.
         """
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
         nonce = data[:12]
         tag = data[12:28]
         ct = data[28:]
+
+        materials: list[bytes] = []
+        passphrase = os.getenv("APCORE_CLI_CONFIG_PASSPHRASE")
+        if passphrase:
+            materials.append(passphrase.encode("utf-8"))
+        materials.append(self._v1_material())
+
         last_exc: Exception = ValueError("no iterations tried")
-        for iterations in (600_000, 100_000):
-            try:
-                key = hashlib.pbkdf2_hmac("sha256", self._v1_material(), _V1_STATIC_SALT, iterations=iterations)
-                decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce, tag)).decryptor()
-                return (decryptor.update(ct) + decryptor.finalize()).decode("utf-8")
-            except (InvalidTag, ValueError, UnicodeDecodeError) as exc:
-                last_exc = exc
-                continue
+        for material in materials:
+            for iterations in (600_000, 100_000):
+                try:
+                    key = hashlib.pbkdf2_hmac("sha256", material, _V1_STATIC_SALT, iterations=iterations)
+                    decryptor = Cipher(algorithms.AES(key), modes.GCM(nonce, tag)).decryptor()
+                    return (decryptor.update(ct) + decryptor.finalize()).decode("utf-8")
+                except (InvalidTag, ValueError, UnicodeDecodeError) as exc:
+                    last_exc = exc
+                    continue
         raise ConfigDecryptionError("v1 decryption failed") from last_exc
 
     def _v1_material(self) -> bytes:
