@@ -18,12 +18,12 @@ def test_check_approval_is_exported_at_package_root():
     """
     import apcore_cli
 
-    assert apcore_cli.check_approval is check_approval, (
-        "apcore_cli.check_approval must alias apcore_cli.approval.check_approval"
-    )
-    assert "check_approval" in apcore_cli.__all__, (
-        "check_approval must be in apcore_cli.__all__ for `from apcore_cli import *`"
-    )
+    assert (
+        apcore_cli.check_approval is check_approval
+    ), "apcore_cli.check_approval must alias apcore_cli.approval.check_approval"
+    assert (
+        "check_approval" in apcore_cli.__all__
+    ), "check_approval must be in apcore_cli.__all__ for `from apcore_cli import *`"
 
 
 def test_module_not_found_error_exports_with_deprecated_alias():

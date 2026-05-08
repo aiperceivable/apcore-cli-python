@@ -153,7 +153,9 @@ def register_health_command(apcli_group: click.Group, executor: Any) -> None:
     @click.option("--threshold", type=float, default=0.01, help="Error rate threshold (default: 0.01).")
     @click.option("--all", "include_all", is_flag=True, default=False, help="Include healthy modules.")
     @click.option("--errors", type=int, default=10, help="Max recent errors (module detail only).")
-    @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+    @click.option(
+        "--format", "output_format", type=click.Choice(["table", "json", "csv", "yaml", "jsonl"]), default=None
+    )
     def health_cmd(
         module_id: str | None,
         threshold: float,
@@ -197,7 +199,9 @@ def register_usage_command(apcli_group: click.Group, executor: Any) -> None:
     @apcli_group.command("usage")
     @click.argument("module_id", required=False)
     @click.option("--period", default="24h", help="Time window: 1h, 24h, 7d, 30d (default: 24h).")
-    @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+    @click.option(
+        "--format", "output_format", type=click.Choice(["table", "json", "csv", "yaml", "jsonl"]), default=None
+    )
     def usage_cmd(module_id: str | None, period: str, output_format: str | None) -> None:
         """Show module usage statistics. Optionally specify a module ID for details."""
         fmt = resolve_format(output_format)
@@ -234,7 +238,9 @@ def register_enable_command(apcli_group: click.Group, executor: Any) -> None:
     @click.argument("module_id")
     @click.option("--reason", required=True, help="Reason for enabling (recorded in module audit trail).")
     @click.option("--yes", "-y", is_flag=True, default=False, help="Skip approval prompt.")
-    @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+    @click.option(
+        "--format", "output_format", type=click.Choice(["table", "json", "csv", "yaml", "jsonl"]), default=None
+    )
     def enable_cmd(module_id: str, reason: str, yes: bool, output_format: str | None) -> None:
         """Enable a disabled module at runtime."""
         import time
@@ -286,7 +292,9 @@ def register_disable_command(apcli_group: click.Group, executor: Any) -> None:
     @click.argument("module_id")
     @click.option("--reason", required=True, help="Reason for disabling (recorded in module audit trail).")
     @click.option("--yes", "-y", is_flag=True, default=False, help="Skip approval prompt.")
-    @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+    @click.option(
+        "--format", "output_format", type=click.Choice(["table", "json", "csv", "yaml", "jsonl"]), default=None
+    )
     def disable_cmd(module_id: str, reason: str, yes: bool, output_format: str | None) -> None:
         """Disable a module at runtime (calls are rejected until re-enabled)."""
         import time
@@ -338,7 +346,9 @@ def register_reload_command(apcli_group: click.Group, executor: Any) -> None:
     @click.argument("module_id")
     @click.option("--reason", required=True, help="Reason for reload (recorded in module audit trail).")
     @click.option("--yes", "-y", is_flag=True, default=False, help="Skip approval prompt.")
-    @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+    @click.option(
+        "--format", "output_format", type=click.Choice(["table", "json", "csv", "yaml", "jsonl"]), default=None
+    )
     def reload_cmd(module_id: str, reason: str, yes: bool, output_format: str | None) -> None:
         """Hot-reload a module from disk."""
         import time
@@ -401,7 +411,9 @@ def register_config_command(apcli_group: click.Group, executor: Any) -> None:
     @click.argument("value")
     @click.option("--reason", required=True, help="Reason for config change (recorded in module audit trail).")
     @click.option("-y", "--yes", "auto_approve", is_flag=True, default=False, help="Auto-approve.")
-    @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+    @click.option(
+        "--format", "output_format", type=click.Choice(["table", "json", "csv", "yaml", "jsonl"]), default=None
+    )
     def config_set_cmd(key: str, value: str, reason: str, auto_approve: bool, output_format: str | None) -> None:
         """Update a runtime configuration value (requires approval)."""
         import time

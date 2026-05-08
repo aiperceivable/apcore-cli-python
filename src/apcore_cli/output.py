@@ -14,11 +14,47 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from apcore_cli.display_helpers import get_cli_display_fields as _get_cli_fields
+from apcore_cli.display_helpers import get_display as _get_display
 
 if TYPE_CHECKING:
     from apcore.registry.types import ModuleDescriptor
 
 logger = logging.getLogger(__name__)
+
+
+_TOOLKIT_MISSING_HINT = (
+    "The 'markdown' and 'skill' output formats require the apcore-toolkit "
+    "extra. Install with: pip install 'apcore-cli[toolkit]'"
+)
+
+
+def _descriptor_to_scanned(module_def: Any) -> Any:
+    """Adapt a registry `ModuleDescriptor` to the toolkit's `ScannedModule`.
+
+    Both shapes share most fields; the toolkit additionally needs `target`,
+    `suggested_alias`, `warnings`, and `display`. Display is sourced from the
+    descriptor's metadata via `get_display()`.
+    """
+    from apcore_toolkit.types import ScannedModule
+
+    mid = getattr(module_def, "canonical_id", None) or module_def.module_id
+    metadata = getattr(module_def, "metadata", None) or {}
+    return ScannedModule(
+        module_id=mid,
+        description=module_def.description or "",
+        input_schema=getattr(module_def, "input_schema", None) or {},
+        output_schema=getattr(module_def, "output_schema", None) or {},
+        tags=list(getattr(module_def, "tags", []) or []),
+        target="",
+        version=getattr(module_def, "version", None),
+        annotations=getattr(module_def, "annotations", None),
+        documentation=getattr(module_def, "documentation", None),
+        suggested_alias=None,
+        examples=list(getattr(module_def, "examples", []) or []),
+        metadata=metadata if isinstance(metadata, dict) else {},
+        warnings=[],
+        display=_get_display(module_def) or None,
+    )
 
 
 def resolve_format(explicit_format: str | None) -> str:
@@ -84,6 +120,14 @@ def format_module_list(
             table.add_row(*row)
 
         Console().print(table)
+    elif format in ("markdown", "skill"):
+        try:
+            from apcore_toolkit import format_modules
+        except ImportError as exc:  # pragma: no cover - exercised via integration only
+            raise click.ClickException(_TOOLKIT_MISSING_HINT) from exc
+
+        scanned = [_descriptor_to_scanned(m) for m in modules]
+        click.echo(format_modules(scanned, style=format, display=True))
     elif format in ("json", "csv", "yaml", "jsonl"):
         rows: list[dict[str, Any]] = []
         for m in modules:
@@ -208,6 +252,14 @@ def format_module_detail(module_def: ModuleDescriptor, format: str) -> None:
         tags = getattr(module_def, "tags", [])
         if tags:
             click.echo(f"\nTags: {', '.join(tags)}")
+
+    elif format in ("markdown", "skill"):
+        try:
+            from apcore_toolkit import format_module
+        except ImportError as exc:  # pragma: no cover - exercised via integration only
+            raise click.ClickException(_TOOLKIT_MISSING_HINT) from exc
+
+        click.echo(format_module(_descriptor_to_scanned(module_def), style=format, display=True))
 
     elif format == "json":
         result: dict[str, Any] = {

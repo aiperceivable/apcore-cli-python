@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`apcli system *` and `apcli strategy describe-pipeline` `--format` choices**
+  expanded from `[table, json]` to `[table, json, csv, yaml, jsonl]`, matching
+  the existing `apcli list` / `apcli exec` choice set. `markdown` and `skill`
+  are deliberately excluded from these subcommands — their payloads are
+  health / strategy results, not `ScannedModule` data. Issue
+  [#20](https://github.com/aiperceivable/apcore-cli/issues/20).
 - **Dependency bump**: requires `apcore >= 0.21.0` (was `>= 0.19.0`) and the
   optional `[toolkit]` extra now requires `apcore-toolkit >= 0.6` (was `>= 0.5`).
   Aligns with upstream `apcore 0.21.0` (Module.preview / PreflightResult.predicted_changes,
@@ -29,6 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--format markdown` and `--format skill`** for `apcli list` and `apcli describe`
+  (issue [#20](https://github.com/aiperceivable/apcore-cli/issues/20)). Both
+  delegate to `apcore_toolkit.format_module(s)` (≥0.6) so the output is
+  byte-identical to the same toolkit call in the TypeScript and Rust SDKs.
+  `--format skill` produces vendor-neutral SKILL.md content directly loadable
+  by Claude Code (`.claude/skills/<id>/SKILL.md`) and Gemini CLI
+  (`.gemini/skills/<id>/SKILL.md`):
+
+  ```bash
+  apcli describe users.create --format skill > .claude/skills/users.create/SKILL.md
+  ```
+
+  A new internal adapter `_descriptor_to_scanned()` maps `ModuleDescriptor`
+  (apcore registry) to `ScannedModule` (apcore-toolkit). A `ClickException` with
+  a clear install hint is raised if the optional `[toolkit]` extra is missing.
 - **Issue #18 — host-app `--version` opt-in**: new `version: str | None = None`
   parameter on `create_cli()`. When supplied, registers `-V/--version` with
   the host's version string. **When omitted, the `--version` flag is no

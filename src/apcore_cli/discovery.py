@@ -87,7 +87,7 @@ def register_list_command(
     @click.option(
         "--format",
         "output_format",
-        type=click.Choice(["table", "json", "csv", "yaml", "jsonl"]),
+        type=click.Choice(["table", "json", "csv", "yaml", "jsonl", "markdown", "skill"]),
         default=None,
         help="Output format. Default: table (TTY) or json (non-TTY).",
     )
@@ -223,7 +223,7 @@ def register_list_command(
         fmt = resolve_format(output_format)
         show_exposure_col = exposure == "all"
 
-        if flat or fmt in ("json", "csv", "yaml", "jsonl"):
+        if flat or fmt in ("json", "csv", "yaml", "jsonl", "markdown", "skill"):
             format_module_list(
                 modules,
                 fmt,
@@ -250,7 +250,7 @@ def register_describe_command(apcli_group: click.Group, registry: Any) -> None:
     @click.option(
         "--format",
         "output_format",
-        type=click.Choice(["table", "json"]),
+        type=click.Choice(["table", "json", "csv", "yaml", "jsonl", "markdown", "skill"]),
         default=None,
         help="Output format. Default: table (TTY) or json (non-TTY).",
     )

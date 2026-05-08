@@ -120,7 +120,12 @@ def register_pipeline_command(cli: click.Group, executor: Any) -> None:
         default="standard",
         help="Strategy to describe (default: standard).",
     )
-    @click.option("--format", "output_format", type=click.Choice(["table", "json"]), default=None)
+    @click.option(
+        "--format",
+        "output_format",
+        type=click.Choice(["table", "json", "csv", "yaml", "jsonl"]),
+        default=None,
+    )
     def _describe_pipeline_cmd(strategy: str, output_format: str | None) -> None:  # pyright: ignore[reportUnusedVariable]
         """Show the execution pipeline steps for a strategy."""
         fmt = resolve_format(output_format)
