@@ -7,6 +7,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -94,8 +96,18 @@ class Sandbox:
         return self
 
     def with_max_output_bytes(self, max_output_bytes: int) -> Sandbox:
-        """Cap the post-capture stdout+stderr byte budget for the sandboxed
-        subprocess. Default: 64 MiB (:attr:`DEFAULT_MAX_OUTPUT_BYTES`).
+        """Cap the per-stream byte budget for the sandboxed subprocess.
+
+        Each of stdout and stderr is independently bounded by this cap.
+        When either stream exceeds the cap, the child is terminated and a
+        :class:`ModuleExecutionError` is raised — output is streamed via
+        :class:`subprocess.Popen` so memory usage stays bounded even when
+        the child attempts to emit far more than the budget. Default:
+        64 MiB (:attr:`DEFAULT_MAX_OUTPUT_BYTES`).
+
+        Cross-SDK parity (D10-001 / D11-W2): per-stream caps match the
+        Rust and TypeScript sandboxes, which both bound stdout and stderr
+        independently and stream rather than buffering the full pipe.
 
         Builder-style — returns ``self``. Python-only knob; no equivalent
         in the Rust or TypeScript SDKs at this writing.
@@ -137,33 +149,128 @@ class Sandbox:
             env["HOME"] = tmpdir
             env["TMPDIR"] = tmpdir
 
-            try:
-                result = subprocess.run(
-                    [sys.executable, "-m", "apcore_cli._sandbox_runner", module_id],
-                    input=json.dumps(input_data),
-                    capture_output=True,
-                    text=True,
-                    env=env,
-                    cwd=tmpdir,
-                    timeout=self._timeout_seconds,
-                )
-            except subprocess.TimeoutExpired as err:
-                raise ModuleExecutionError(f"Error: Module '{module_id}' timed out in sandbox.") from err
+            stdout_bytes, stderr_bytes, returncode, overflow_stream = self._run_streaming(
+                module_id=module_id,
+                input_data=input_data,
+                env=env,
+                cwd=tmpdir,
+            )
 
-            # Enforce output size cap (post-capture soft limit; for a hard cap
-            # that prevents memory accumulation, use Popen-based streaming).
-            total_bytes = len(result.stdout.encode()) + len(result.stderr.encode())
-            if total_bytes > self._max_output_bytes:
+            if overflow_stream is not None:
                 limit_mb = self._max_output_bytes // (1024 * 1024)
                 raise ModuleExecutionError(
-                    f"Error: Module '{module_id}' output exceeded the {limit_mb}MB sandbox limit."
+                    f"Error: Module '{module_id}' {overflow_stream} exceeded the {limit_mb}MB sandbox limit."
                 )
 
-            if result.returncode != 0:
-                raise ModuleExecutionError(f"Error: Module '{module_id}' execution failed: {result.stderr}")
+            stdout_text = stdout_bytes.decode("utf-8", errors="replace")
+            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
+
+            if returncode != 0:
+                raise ModuleExecutionError(f"Error: Module '{module_id}' execution failed: {stderr_text}")
 
             try:
-                return json.loads(result.stdout)
+                return json.loads(stdout_text)
             except json.JSONDecodeError as err:
-                preview = result.stdout[:200]
+                preview = stdout_text[:200]
                 raise ModuleExecutionError(f"Error: Module '{module_id}' returned non-JSON output: {preview}") from err
+
+    def _run_streaming(
+        self,
+        *,
+        module_id: str,
+        input_data: dict,
+        env: dict[str, str],
+        cwd: str,
+    ) -> tuple[bytes, bytes, int, str | None]:
+        """Spawn the sandbox runner via :class:`subprocess.Popen` and read
+        stdout/stderr in chunks with per-stream byte budgets.
+
+        Returns ``(stdout, stderr, returncode, overflow_stream)``. When the
+        child exceeds the per-stream cap, ``overflow_stream`` names the
+        offending stream (``"stdout"`` or ``"stderr"``) and the child has
+        been killed; the returned buffers contain whatever was read up to
+        the overflow point.
+
+        Mirrors the Rust ``read_to_end`` cap and TS per-chunk listener
+        (D10-001 / D11-W2): output is bounded independently per stream and
+        the parent never accumulates more than the budget.
+        """
+        cap = self._max_output_bytes
+        chunk_size = 64 * 1024
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "apcore_cli._sandbox_runner", module_id],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            cwd=cwd,
+        )
+
+        # Write the JSON input and close stdin so the child can drain it.
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(json.dumps(input_data).encode("utf-8"))
+            proc.stdin.close()
+        except BrokenPipeError:
+            # Child exited before consuming stdin; carry on and read pipes.
+            pass
+
+        stdout_buf = bytearray()
+        stderr_buf = bytearray()
+        overflow: list[str | None] = [None]
+        lock = threading.Lock()
+
+        def _drain(stream, buf: bytearray, name: str) -> None:
+            try:
+                while True:
+                    chunk = stream.read(chunk_size)
+                    if not chunk:
+                        break
+                    with lock:
+                        if overflow[0] is not None:
+                            # Another stream already overflowed; keep draining
+                            # so the child does not block on a full pipe, but
+                            # do not exceed our buffer beyond cap+1.
+                            remaining = max(0, cap + 1 - len(buf))
+                            if remaining:
+                                buf.extend(chunk[:remaining])
+                            continue
+                        buf.extend(chunk)
+                        if len(buf) > cap:
+                            overflow[0] = name
+                            try:
+                                proc.kill()
+                            except Exception:  # pragma: no cover - best effort
+                                pass
+            except Exception:  # pragma: no cover - best effort
+                pass
+            finally:
+                try:
+                    stream.close()
+                except Exception:  # pragma: no cover
+                    pass
+
+        assert proc.stdout is not None and proc.stderr is not None
+        t_out = threading.Thread(target=_drain, args=(proc.stdout, stdout_buf, "stdout"), daemon=True)
+        t_err = threading.Thread(target=_drain, args=(proc.stderr, stderr_buf, "stderr"), daemon=True)
+        t_out.start()
+        t_err.start()
+
+        deadline = time.monotonic() + self._timeout_seconds if self._timeout_seconds else None
+        while True:
+            try:
+                remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+                proc.wait(timeout=remaining)
+                break
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                t_out.join(timeout=1.0)
+                t_err.join(timeout=1.0)
+                raise ModuleExecutionError(
+                    f"Error: Module '{module_id}' timed out in sandbox."
+                ) from None
+
+        t_out.join(timeout=1.0)
+        t_err.join(timeout=1.0)
+
+        return bytes(stdout_buf), bytes(stderr_buf), proc.returncode, overflow[0]
