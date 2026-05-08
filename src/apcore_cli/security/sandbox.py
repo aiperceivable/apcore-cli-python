@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -238,17 +239,13 @@ class Sandbox:
                         buf.extend(chunk)
                         if len(buf) > cap:
                             overflow[0] = name
-                            try:
+                            with contextlib.suppress(Exception):  # pragma: no cover - best effort
                                 proc.kill()
-                            except Exception:  # pragma: no cover - best effort
-                                pass
             except Exception:  # pragma: no cover - best effort
                 pass
             finally:
-                try:
+                with contextlib.suppress(Exception):  # pragma: no cover
                     stream.close()
-                except Exception:  # pragma: no cover
-                    pass
 
         assert proc.stdout is not None and proc.stderr is not None
         t_out = threading.Thread(target=_drain, args=(proc.stdout, stdout_buf, "stdout"), daemon=True)

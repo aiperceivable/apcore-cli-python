@@ -200,7 +200,7 @@ class TestEnvVarParsing:
         monkeypatch.setenv("APCORE_CLI_APCLI", value)
         # Tier-3 yaml says the opposite of the env var so we can verify the env
         # parser actually consumed the (whitespace-padded) value.
-        yaml = False if expected == "all" else True
+        yaml = expected != "all"
         g = ApcliGroup.from_yaml(yaml, registry_injected=False)
         assert g.resolve_visibility() == expected
 
@@ -336,9 +336,7 @@ class TestBuiltinGroupRename:
         Mirrors Rust's ``ApcliGroupError`` re-exported from ``lib.rs``.
         """
         with pytest.raises(ApcliGroupError, match="builtin_group_name"):
-            ApcliGroup.from_cli_config(
-                None, registry_injected=False, name="Bad-NAME"
-            )
+            ApcliGroup.from_cli_config(None, registry_injected=False, name="Bad-NAME")
 
     def test_apcli_group_error_is_value_error_subclass(self):
         """Back-compat: existing ``except ValueError`` callers must still catch

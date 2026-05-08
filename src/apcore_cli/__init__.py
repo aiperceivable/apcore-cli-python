@@ -23,15 +23,6 @@ from apcore_cli.builtin_group import (
     ApcliGroupError,
     ApcliMode,
 )
-from apcore_cli.config import (
-    DEFAULTS,
-    ConfigResolver,
-    register_config_namespace,
-)
-
-# Config Bus namespace registration (apcore >= 0.15.0).
-# Side-effect at import time; helper is also exported for explicit re-registration.
-register_config_namespace()
 from apcore_cli.cli import (
     build_module_command,
     collect_input,
@@ -39,6 +30,11 @@ from apcore_cli.cli import (
     set_docs_url,
     set_verbose_help,
     validate_module_id,
+)
+from apcore_cli.config import (
+    DEFAULTS,
+    ConfigResolver,
+    register_config_namespace,
 )
 from apcore_cli.discovery import (
     register_describe_command,
@@ -103,6 +99,10 @@ from apcore_cli.system_cmd import (
     register_reload_command,
     register_usage_command,
 )
+
+# Config Bus namespace registration (apcore >= 0.15.0).
+# Side-effect at import time; helper is also exported for explicit re-registration.
+register_config_namespace()
 
 __all__ = [
     "__version__",

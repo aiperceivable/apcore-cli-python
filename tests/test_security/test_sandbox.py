@@ -82,9 +82,11 @@ class TestSandbox:
 
     def test_sandbox_subprocess_failure(self):
         sandbox = Sandbox(enabled=True)
-        with patch_popen(stdout=b"", stderr=b"module error", returncode=1):
-            with pytest.raises(ModuleExecutionError, match="execution failed"):
-                sandbox._sandboxed_execute("mod", {})
+        with (
+            patch_popen(stdout=b"", stderr=b"module error", returncode=1),
+            pytest.raises(ModuleExecutionError, match="execution failed"),
+        ):
+            sandbox._sandboxed_execute("mod", {})
 
     def test_sandbox_result_parsing(self):
         sandbox = Sandbox(enabled=True)
@@ -96,9 +98,11 @@ class TestSandbox:
         """W9: a subprocess that exits 0 but emits non-JSON stdout must surface
         as the documented ModuleExecutionError contract, not raw JSONDecodeError."""
         sandbox = Sandbox(enabled=True)
-        with patch_popen(stdout=b"DeprecationWarning: blah\n{not-json-at-all"):
-            with pytest.raises(ModuleExecutionError, match="non-JSON output"):
-                sandbox._sandboxed_execute("mod", {})
+        with (
+            patch_popen(stdout=b"DeprecationWarning: blah\n{not-json-at-all"),
+            pytest.raises(ModuleExecutionError, match="non-JSON output"),
+        ):
+            sandbox._sandboxed_execute("mod", {})
 
     def test_sandbox_env_does_not_leak_auth_api_key(self):
         """C1: APCORE_AUTH_API_KEY must not reach the sandboxed subprocess."""
@@ -151,9 +155,11 @@ class TestSandbox:
         """W6 (D3): oversized subprocess output must raise ModuleExecutionError."""
         sandbox = Sandbox(enabled=True).with_max_output_bytes(100)
         big_stdout = b"x" * 200
-        with patch_popen(stdout=big_stdout):
-            with pytest.raises(ModuleExecutionError, match="exceeded"):
-                sandbox._sandboxed_execute("mod", {})
+        with (
+            patch_popen(stdout=big_stdout),
+            pytest.raises(ModuleExecutionError, match="exceeded"),
+        ):
+            sandbox._sandboxed_execute("mod", {})
 
     def test_sandbox_per_stream_caps_allow_combined_under_limit(self):
         """D10-001: stdout and stderr have independent caps. Combined size
@@ -181,17 +187,21 @@ class TestSandbox:
         """D10-001: when stdout alone exceeds the cap the error message must
         identify ``stdout`` as the offending stream."""
         sandbox = Sandbox(enabled=True).with_max_output_bytes(50)
-        with patch_popen(stdout=b"x" * 200, stderr=b""):
-            with pytest.raises(ModuleExecutionError, match="stdout exceeded"):
-                sandbox._sandboxed_execute("mod", {})
+        with (
+            patch_popen(stdout=b"x" * 200, stderr=b""),
+            pytest.raises(ModuleExecutionError, match="stdout exceeded"),
+        ):
+            sandbox._sandboxed_execute("mod", {})
 
     def test_sandbox_per_stream_cap_stderr_overflow_names_stream(self):
         """D10-001: when stderr alone exceeds the cap the error message must
         identify ``stderr`` as the offending stream."""
         sandbox = Sandbox(enabled=True).with_max_output_bytes(50)
-        with patch_popen(stdout=b'{"ok": true}', stderr=b"e" * 200):
-            with pytest.raises(ModuleExecutionError, match="stderr exceeded"):
-                sandbox._sandboxed_execute("mod", {})
+        with (
+            patch_popen(stdout=b'{"ok": true}', stderr=b"e" * 200),
+            pytest.raises(ModuleExecutionError, match="stderr exceeded"),
+        ):
+            sandbox._sandboxed_execute("mod", {})
 
     def test_sandbox_streaming_kills_child_on_stdout_overflow(self):
         """D11-W2: when stdout overflows the cap mid-read the child process

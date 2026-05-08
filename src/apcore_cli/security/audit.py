@@ -77,9 +77,4 @@ class AuditLogger:
             return pwd.getpwuid(os.getuid()).pw_name
         except (ImportError, KeyError, AttributeError):
             pass
-        return (
-            os.getenv("USER")
-            or os.getenv("LOGNAME")
-            or os.getenv("USERNAME")
-            or "unknown"
-        )
+        return os.getenv("USER") or os.getenv("LOGNAME") or os.getenv("USERNAME") or "unknown"

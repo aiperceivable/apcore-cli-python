@@ -68,12 +68,10 @@ class TestAuditLogger:
             logger.log_execution("mod", {}, "success", 0, 10)
             logger.log_execution("mod", {}, "success", 0, 10)
             logger.log_execution("mod", {}, "success", 0, 10)
-        write_failure_warnings = [
-            rec for rec in caplog.records if "Could not write audit log" in rec.getMessage()
-        ]
-        assert len(write_failure_warnings) == 1, (
-            f"expected exactly 1 write-failure warning, got {len(write_failure_warnings)}"
-        )
+        write_failure_warnings = [rec for rec in caplog.records if "Could not write audit log" in rec.getMessage()]
+        assert (
+            len(write_failure_warnings) == 1
+        ), f"expected exactly 1 write-failure warning, got {len(write_failure_warnings)}"
 
     def test_get_user_fallback_pwd(self, monkeypatch):
         # When getlogin() fails, should fall back to pwd.getpwuid()
