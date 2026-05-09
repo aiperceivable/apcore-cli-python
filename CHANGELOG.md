@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+
+- **`tests/conformance/test_snake_case_kwargs.py`** — runs the cross-language Algorithm C-SNAKE fixture (`apcore-cli/conformance/fixtures/snake-case-kwargs/cases.json`) against `build_module_command` via `click.testing.CliRunner`. Five cases verify that schema property names with underscores (`has_solution`, `sort_by`, `sort_order`) survive the round trip from CLI parse to the input dict received by `executor.call`. No source change required — click natively maps `--has-solution` to `has_solution`; the Python SDK is the parity reference for the parallel TypeScript fix. Surfaced as part of the cross-SDK regression coverage gap audit.
+
+
 ## [0.8.0] - 2026-05-08
 
 ### Removed
