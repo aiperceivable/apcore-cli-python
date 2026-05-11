@@ -42,7 +42,7 @@ def register_init_command(cli: click.Group) -> None:
 
     @cli.group("init")
     def init_group():
-        """Scaffold new apcore modules."""
+        """Scaffold new modules."""
         pass
 
     @init_group.command("module")

@@ -48,10 +48,10 @@ Terminal adapter for apcore. Execute AI-Perceivable modules from the command lin
 pip install apcore-cli
 ```
 
-Requires Python 3.11+ and `apcore >= 0.21.0`. The optional `toolkit` extra requires `apcore-toolkit >= 0.6`:
+Requires Python 3.11+, `apcore >= 0.21.0`, and `apcore-toolkit >= 0.7.0` (now a **required** runtime dependency as of v0.9.0 — previously optional; see the [tech-design ADR-09](https://github.com/aiperceivable/apcore-cli/blob/main/docs/tech-design.md) for the byte-equivalent toolkit-delegated tier rationale). The `[toolkit]` extras group is retained as a no-op for backward compat:
 
 ```bash
-pip install "apcore-cli[toolkit]"
+pip install "apcore-cli[toolkit]"   # equivalent to plain `pip install apcore-cli`
 ```
 
 ## Quick Start
@@ -323,7 +323,7 @@ When executing a module (e.g. `apcore-cli math add`), these built-in options are
 | `--input -` | Read JSON input from STDIN |
 | `--yes` / `-y` | Bypass approval prompts |
 | `--large-input` | Allow STDIN input larger than 10MB |
-| `--format` | Output format: `{json, table, csv, yaml, jsonl}` |
+| `--format` | Output format: `{json, table, csv, yaml, jsonl, markdown, skill}`. **v0.9.0:** `csv` and `jsonl` are byte-identical across SDKs (delegated to `apcore-toolkit.format_csv` / `format_jsonl`); fixes the prior `str(v)` Python-repr bug for nested values. |
 | `--sandbox` | Run module in subprocess sandbox *(not yet implemented)* |
 | `--dry-run` | Run preflight checks without executing (FE-11, v0.6.0) |
 | `--trace` | Emit execution pipeline trace (v0.6.0) |

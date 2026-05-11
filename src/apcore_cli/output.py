@@ -8,6 +8,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import click
+from apcore_toolkit import format_csv, format_jsonl
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -26,6 +27,24 @@ _TOOLKIT_MISSING_HINT = (
     "The 'markdown' and 'skill' output formats require the apcore-toolkit "
     "extra. Install with: pip install 'apcore-cli[toolkit]'"
 )
+
+
+def _to_rows_for_tabular(value: Any) -> list[dict] | None:
+    """Coerce an exec result into the row-shape expected by the toolkit's
+    tabular formatters (csv / jsonl). Returns ``None`` for shapes that don't
+    map to tabular (scalars, empty lists, lists of non-dicts).
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        if not value:
+            return None
+        if not all(isinstance(item, dict) for item in value):
+            return None
+        return value
+    if isinstance(value, dict):
+        return [value]
+    return None
 
 
 def _descriptor_to_scanned(module_def: Any) -> Any:
@@ -147,16 +166,10 @@ def format_module_list(
         if format == "json":
             click.echo(json.dumps(rows, indent=2))
         elif format == "csv":
-            import csv
-            import io
-
+            # Delegate to apcore-toolkit for byte-equivalent cross-SDK output.
+            # Fixes the prior `str(v)` Python-repr bug for nested values.
             if rows:
-                buf = io.StringIO()
-                writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
-                writer.writeheader()
-                for row in rows:
-                    writer.writerow({k: str(v) for k, v in row.items()})
-                click.echo(buf.getvalue().rstrip())
+                click.echo(format_csv(rows).rstrip())
         elif format == "yaml":
             try:
                 import yaml
@@ -164,9 +177,8 @@ def format_module_list(
                 click.echo(yaml.dump(rows, default_flow_style=False, allow_unicode=True).rstrip())
             except ImportError:
                 click.echo(json.dumps(rows, indent=2))
-        elif format == "jsonl":
-            for row in rows:
-                click.echo(json.dumps(row))
+        elif format == "jsonl" and rows:
+            click.echo(format_jsonl(rows).rstrip())
 
 
 def _annotations_to_dict(annotations: Any) -> dict | None:
@@ -376,22 +388,9 @@ def format_exec_result(result: Any, format: str | None = None, fields: str | Non
     effective = resolve_format(format)
 
     if effective == "csv":
-        import csv
-        import io
-
-        if isinstance(result, dict):
-            buf = io.StringIO()
-            writer = csv.DictWriter(buf, fieldnames=list(result.keys()))
-            writer.writeheader()
-            writer.writerow({k: str(v) for k, v in result.items()})
-            click.echo(buf.getvalue().rstrip())
-        elif isinstance(result, list) and result and isinstance(result[0], dict):
-            buf = io.StringIO()
-            writer = csv.DictWriter(buf, fieldnames=list(result[0].keys()))
-            writer.writeheader()
-            for row in result:
-                writer.writerow({k: str(v) for k, v in row.items()})
-            click.echo(buf.getvalue().rstrip())
+        rows = _to_rows_for_tabular(result)
+        if rows is not None:
+            click.echo(format_csv(rows).rstrip())
         else:
             click.echo(json.dumps(result, default=str))
     elif effective == "yaml":
@@ -402,9 +401,9 @@ def format_exec_result(result: Any, format: str | None = None, fields: str | Non
         except ImportError:
             click.echo(json.dumps(result, indent=2, default=str))
     elif effective == "jsonl":
-        if isinstance(result, list):
-            for item in result:
-                click.echo(json.dumps(item, default=str))
+        rows = _to_rows_for_tabular(result)
+        if rows is not None:
+            click.echo(format_jsonl(rows).rstrip())
         else:
             click.echo(json.dumps(result, default=str))
     elif effective == "table" and isinstance(result, dict):

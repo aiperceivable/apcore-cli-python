@@ -49,6 +49,33 @@ class TestFormatExecResultBranches:
         # non-dict/list → JSON dump of the scalar string
         assert out == '"hello"'
 
+    # --- Regression: nested-object CSV (apcore-cli-python str() repr bug) ---
+    def test_csv_nested_object_serializes_as_json(self, capsys):
+        """Before toolkit-delegate, str() emitted Python repr `{'k': 'v'}`
+        with single quotes — invalid JSON. Toolkit emits canonical JSON."""
+        format_exec_result(
+            {"schema": {"type": "object", "properties": {"a": {"type": "integer"}}}},
+            format="csv",
+        )
+        out = capsys.readouterr().out
+        # Must contain canonical JSON (double-quoted), not Python repr.
+        assert "'type'" not in out, "must not emit Python repr"
+        assert '"type":"object"' in out.replace('""', '"') or '""type""' in out
+
+    # --- Regression: heterogeneous-keys data loss ---
+    def test_csv_heterogeneous_keys_included(self, capsys):
+        """Before toolkit-delegate, csv.DictWriter was given only first-row
+        keys, dropping later-row fields silently. Toolkit emits union of keys."""
+        format_exec_result(
+            [{"sn": 1, "title": "A"}, {"sn": 2, "title": "B", "description": "later-only"}],
+            format="csv",
+        )
+        out = capsys.readouterr().out
+        lines = [line for line in out.splitlines() if line.strip()]
+        assert lines[0] == "sn,title,description"
+        assert lines[1] == "1,A,"
+        assert lines[2] == "2,B,later-only"
+
     def test_yaml_format(self, capsys):
         format_exec_result({"a": 1, "b": [1, 2]}, format="yaml")
         out = capsys.readouterr().out
@@ -58,12 +85,13 @@ class TestFormatExecResultBranches:
     def test_jsonl_list(self, capsys):
         format_exec_result([{"i": 1}, {"i": 2}], format="jsonl")
         out = capsys.readouterr().out
-        assert '{"i": 1}' in out
-        assert '{"i": 2}' in out
+        # Toolkit-canonical compact JSON: no whitespace between separators.
+        assert '{"i":1}' in out
+        assert '{"i":2}' in out
 
     def test_jsonl_non_list(self, capsys):
         format_exec_result({"i": 1}, format="jsonl")
-        assert capsys.readouterr().out.strip() == '{"i": 1}'
+        assert capsys.readouterr().out.strip() == '{"i":1}'
 
     def test_table_dict_uses_rich(self, capsys):
         # Force table format even though stdout isn't a TTY — the function

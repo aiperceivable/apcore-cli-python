@@ -27,16 +27,8 @@ from click.testing import CliRunner
 from apcore_cli.cli import build_module_command
 
 _DEFAULT_SPEC_REPO = Path(__file__).resolve().parents[3] / "apcore-cli"
-SPEC_REPO_ROOT = Path(
-    os.environ.get("APCORE_CLI_SPEC_REPO", str(_DEFAULT_SPEC_REPO))
-)
-FIXTURE_PATH = (
-    SPEC_REPO_ROOT
-    / "conformance"
-    / "fixtures"
-    / "snake-case-kwargs"
-    / "cases.json"
-)
+SPEC_REPO_ROOT = Path(os.environ.get("APCORE_CLI_SPEC_REPO", str(_DEFAULT_SPEC_REPO)))
+FIXTURE_PATH = SPEC_REPO_ROOT / "conformance" / "fixtures" / "snake-case-kwargs" / "cases.json"
 
 
 def _load_fixture() -> dict[str, Any]:
@@ -64,9 +56,7 @@ def _make_module_def(module_id: str, input_schema: dict[str, Any]) -> Any:
     ids=[c["id"] for c in _FIXTURE["test_cases"]],
 )
 def test_snake_case_kwargs_flow(case: dict[str, Any]) -> None:
-    module_def = _make_module_def(
-        _FIXTURE["module_id"], _FIXTURE["input_schema"]
-    )
+    module_def = _make_module_def(_FIXTURE["module_id"], _FIXTURE["input_schema"])
     captured: dict[str, Any] = {}
 
     def _capture_call(module_id: str, input_data: dict[str, Any]) -> Any:
@@ -82,17 +72,11 @@ def test_snake_case_kwargs_flow(case: dict[str, Any]) -> None:
     runner = CliRunner()
     args = ["--format", "json", "-y", *case["args"]]
     result = runner.invoke(cmd, args, catch_exceptions=False)
-    assert result.exit_code == 0, (
-        f"args={case['args']} exit_code={result.exit_code} "
-        f"stdout={result.output!r}"
-    )
+    assert result.exit_code == 0, f"args={case['args']} exit_code={result.exit_code} " f"stdout={result.output!r}"
 
     actual = captured.get("input", {})
     for key, expected in case["expected_input"].items():
-        assert key in actual, (
-            f"missing key '{key}' in input; full input={actual!r}"
-        )
+        assert key in actual, f"missing key '{key}' in input; full input={actual!r}"
         assert actual[key] == expected, (
-            f"input['{key}'] = {actual[key]!r}, expected {expected!r}; "
-            f"full input={actual!r}"
+            f"input['{key}'] = {actual[key]!r}, expected {expected!r}; " f"full input={actual!r}"
         )

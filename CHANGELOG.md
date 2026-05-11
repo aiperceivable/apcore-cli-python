@@ -5,12 +5,30 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-
-## [Unreleased]
+## [0.9.0] - 2026-05-11
 
 ### Added
 
 - **`tests/conformance/test_snake_case_kwargs.py`** — runs the cross-language Algorithm C-SNAKE fixture (`apcore-cli/conformance/fixtures/snake-case-kwargs/cases.json`) against `build_module_command` via `click.testing.CliRunner`. Five cases verify that schema property names with underscores (`has_solution`, `sort_by`, `sort_order`) survive the round trip from CLI parse to the input dict received by `executor.call`. No source change required — click natively maps `--has-solution` to `has_solution`; the Python SDK is the parity reference for the parallel TypeScript fix. Surfaced as part of the cross-SDK regression coverage gap audit.
+
+### Fixed
+
+- **CSV `--format csv` Python-repr bug** — `csv.DictWriter` was called with `{k: str(v) for k, v in row.items()}` which emitted Python repr `{'k': 'v'}` (single quotes) for nested dict/list values. The output was not valid JSON and any downstream JSON parser would fail. Now delegates to `apcore_toolkit.format_csv(rows)` which emits canonical compact JSON. `src/apcore_cli/output.py:149, 378`.
+- **CSV heterogeneous-keys data loss** — header is now the union of keys across all rows (was first-row only via `list(rows[0].keys())`).
+- **CSV line terminator** — now `\r\n` per RFC 4180.
+- **JSONL canonical form** — now compact (no spaces between separators), matching the cross-SDK contract. Tests updated.
+
+### Changed
+
+- **User-visible help/man/completion text no longer leaks the `apcore` framework name** to end users of downstream CLIs built on apcore-cli. Affected strings: `init` group description (`Scaffold new apcore modules` → `Scaffold new modules`, `init_cmd.py:45`), `--extensions-dir` option help (`Path to apcore extensions directory.` → `Path to extensions directory.`, `factory.py:460`), zsh/fish completion descriptions for `exec` (`Execute an apcore module` → `Execute a module`, `shell.py:130, 211`), and man-page `ENVIRONMENT` section text (`shell.py:299, 314, 319, 458`) — drops `apcore` from the descriptive copy (`Path to the apcore extensions directory` → `Path to the extensions directory`, `Global apcore logging verbosity` → `Global logging verbosity`, `API key for authenticating with the apcore registry` → `API key for authenticating with the registry`). Logger names, source comments, module docstrings, and environment-variable identifiers (`APCORE_*`) are unchanged — only descriptive copy that appears in `--help`, shell completion, and `man` output. Cross-SDK parity with TypeScript 0.8.2 and Rust 0.8.1.
+
+### Changed (breaking dependency semantics)
+
+- **`apcore-toolkit` promoted from optional extra to REQUIRED runtime dependency** (`>=0.7.0`). The previous `pip install 'apcore-cli[toolkit]'` extras pattern is retained as a no-op for backward compat with install scripts, but the toolkit is now always installed alongside apcore-cli. All `--format` operations route through the toolkit's reference implementation for csv/jsonl/markdown/skill.
+
+### Why
+
+See ADR-09 in `apcore-cli/docs/tech-design.md` for the byte-equivalent toolkit-delegated tier rationale.
 
 
 ## [0.8.0] - 2026-05-08

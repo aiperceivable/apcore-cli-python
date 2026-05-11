@@ -457,7 +457,7 @@ def create_cli(
                 click.Option(
                     ["--extensions-dir", "extensions_dir_opt"],
                     default=None,
-                    help="Path to apcore extensions directory.",
+                    help="Path to extensions directory.",
                 ),
                 click.Option(
                     ["--commands-dir", "commands_dir_opt"],

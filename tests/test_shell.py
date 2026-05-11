@@ -29,7 +29,7 @@ def _make_cli(prog_name: str = _PROG):
     @cli.command("exec")
     @click.argument("module_id", required=False)
     def exec_cmd(module_id):
-        """Execute an apcore module."""
+        """Execute a module."""
         pass
 
     register_shell_commands(cli, prog_name=prog_name)

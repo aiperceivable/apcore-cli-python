@@ -127,7 +127,7 @@ def _generate_zsh_completion(prog_name: str) -> str:
         f"{fn}() {{\n"
         "    local -a commands groups_and_top\n"
         "    commands=(\n"
-        "        'exec:Execute an apcore module'\n"
+        "        'exec:Execute a module'\n"
         "        'list:List available modules'\n"
         "        'describe:Show module metadata and schema'\n"
         "        'completion:Generate shell completion script'\n"
@@ -208,7 +208,7 @@ def _generate_fish_completion(prog_name: str) -> str:
         f"{group_cmds_fish_fn}"
         f"\n"
         f'complete -c {quoted} -n "__fish_use_subcommand"'
-        ' -a exec -d "Execute an apcore module"\n'
+        ' -a exec -d "Execute a module"\n'
         f'complete -c {quoted} -n "__fish_use_subcommand"'
         ' -a list -d "List available modules"\n'
         f'complete -c {quoted} -n "__fish_use_subcommand"'
@@ -296,7 +296,7 @@ def _generate_man_page(command_name: str, command: click.Command | None, prog_na
     sections.append(".SH ENVIRONMENT")
     sections.append(".TP")
     sections.append("\\fBAPCORE_EXTENSIONS_ROOT\\fR")
-    sections.append("Path to the apcore extensions directory. Overrides the default \\fI./extensions\\fR.")
+    sections.append("Path to the extensions directory. Overrides the default \\fI./extensions\\fR.")
     sections.append(".TP")
     sections.append("\\fBAPCORE_CLI_AUTO_APPROVE\\fR")
     sections.append(
@@ -311,12 +311,12 @@ def _generate_man_page(command_name: str, command: click.Command | None, prog_na
     sections.append(".TP")
     sections.append("\\fBAPCORE_LOGGING_LEVEL\\fR")
     sections.append(
-        "Global apcore logging verbosity. One of: DEBUG, INFO, WARNING, ERROR. "
+        "Global logging verbosity. One of: DEBUG, INFO, WARNING, ERROR. "
         "Used as fallback when \\fBAPCORE_CLI_LOGGING_LEVEL\\fR is not set. Default: WARNING."
     )
     sections.append(".TP")
     sections.append("\\fBAPCORE_AUTH_API_KEY\\fR")
-    sections.append("API key for authenticating with the apcore registry.")
+    sections.append("API key for authenticating with the registry.")
 
     sections.append(".SH EXIT CODES")
     exit_codes = [
@@ -455,7 +455,7 @@ def build_program_man_page(
     s.append(".SH ENVIRONMENT")
     s.append(".TP")
     s.append("\\fBAPCORE_EXTENSIONS_ROOT\\fR")
-    s.append("Path to the apcore extensions directory.")
+    s.append("Path to the extensions directory.")
     s.append(".TP")
     s.append("\\fBAPCORE_CLI_AUTO_APPROVE\\fR")
     s.append("Set to \\fB1\\fR to bypass approval prompts.")
