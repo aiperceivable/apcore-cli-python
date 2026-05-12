@@ -272,7 +272,7 @@ apcore-cli [OPTIONS] COMMAND [ARGS]
 | `--log-level` | `WARNING` | Logging: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `--version` | | Show version and exit |
 | `--help` | | Show help and exit |
-| `--verbose` | | Show hidden built-in options in `--help` output |
+| `--all-options` | | Show hidden built-in options in `--help` output |
 | `--man` | | Print man page to stdout (use with `--help`) |
 
 ### Built-in Commands
@@ -316,7 +316,7 @@ The full-program man page is reachable via the root flag combination `apcore-cli
 
 ### Module Execution Options
 
-When executing a module (e.g. `apcore-cli math add`), these built-in options are available (hidden by default; pass `--help --verbose` to display them):
+When executing a module (e.g. `apcore-cli math add`), these built-in options are available (hidden by default; pass `--help --all-options` to display them):
 
 | Option | Description |
 |--------|-------------|
@@ -463,7 +463,7 @@ apcore-cli (the adapter)
     +-- system_cmd                Runtime system-management (health/usage/enable/disable/reload/config)
     +-- strategy                  Execution strategy dispatch (--strategy flag and describe-pipeline)
     +-- init_cmd                  Module scaffolding (init subcommand)
-    +-- set_verbose_help          Toggle built-in option visibility
+    +-- set_all_options_help      Toggle built-in option visibility
     +-- set_docs_url              Set base URL for online docs
     +-- build_program_man_page    Full-program roff man page
     +-- configure_man_help        Add --help --man support to any CLI

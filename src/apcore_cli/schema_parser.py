@@ -23,7 +23,7 @@ RESERVED_PROPERTY_NAMES: frozenset[str] = frozenset(
         "large_input",
         "fields",
         "sandbox",
-        "verbose",
+        "all_options",
         "dry_run",
         "trace",
         "stream",

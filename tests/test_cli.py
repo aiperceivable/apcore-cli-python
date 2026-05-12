@@ -990,13 +990,13 @@ class TestGroupedE2E:
 
 
 class TestVerboseHelp:
-    """Tests for --verbose help flag controlling built-in option visibility."""
+    """Tests for --all-options help flag controlling built-in option visibility."""
 
     def test_builtin_options_hidden_by_default(self):
         """Built-in options are hidden from help by default."""
         from apcore_cli import cli as cli_mod
 
-        cli_mod._verbose_help = False
+        cli_mod._all_options_help = False
         try:
             module_def = _make_mock_module_def()
             cmd = build_module_command(module_def, _make_mock_executor())
@@ -1007,13 +1007,13 @@ class TestVerboseHelp:
             assert "format" in hidden_names
             assert "sandbox" in hidden_names
         finally:
-            cli_mod._verbose_help = False
+            cli_mod._all_options_help = False
 
     def test_builtin_options_shown_when_verbose(self):
-        """Built-in options are visible when verbose help is enabled."""
+        """Built-in options are visible when --all-options help is enabled."""
         from apcore_cli import cli as cli_mod
 
-        cli_mod._verbose_help = True
+        cli_mod._all_options_help = True
         try:
             module_def = _make_mock_module_def()
             cmd = build_module_command(module_def, _make_mock_executor())
@@ -1025,21 +1025,21 @@ class TestVerboseHelp:
             # sandbox is always hidden (not yet implemented)
             assert "sandbox" in hidden_names
         finally:
-            cli_mod._verbose_help = False
+            cli_mod._all_options_help = False
 
     def test_set_verbose_help_function(self):
-        """set_verbose_help correctly sets the module-level flag."""
+        """set_verbose_help correctly sets the module-level _all_options_help flag."""
         from apcore_cli import cli as cli_mod
         from apcore_cli.cli import set_verbose_help
 
-        original = cli_mod._verbose_help
+        original = cli_mod._all_options_help
         try:
             set_verbose_help(True)
-            assert cli_mod._verbose_help is True
+            assert cli_mod._all_options_help is True
             set_verbose_help(False)
-            assert cli_mod._verbose_help is False
+            assert cli_mod._all_options_help is False
         finally:
-            cli_mod._verbose_help = original
+            cli_mod._all_options_help = original
 
 
 class TestCreateCliWithApp:

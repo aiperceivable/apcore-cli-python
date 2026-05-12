@@ -480,7 +480,7 @@ def build_program_man_page(
         s.append(f".TP\n\\fB{code}\\fR\n{meaning}")
 
     s.append(".SH SEE ALSO")
-    s.append(f"\\fB{prog_name} \\-\\-help \\-\\-verbose\\fR for full option list.")
+    s.append(f"\\fB{prog_name} \\-\\-help \\-\\-all\\-options\\fR for full option list.")
     if docs_url:
         s.append(f".PP\nFull documentation at \\fI{_roff_escape(docs_url)}\\fR")
 

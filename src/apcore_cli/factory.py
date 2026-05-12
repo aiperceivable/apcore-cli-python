@@ -55,10 +55,10 @@ logger = logging.getLogger("apcore_cli")
 EXIT_CONFIG_NOT_FOUND = 47
 
 
-def _has_verbose_flag(argv: list[str] | None = None) -> bool:
-    """Check if --verbose is present in argv (pre-parse, before Click)."""
+def _has_all_options_flag(argv: list[str] | None = None) -> bool:
+    """Check if --all-options is present in argv (pre-parse, before Click)."""
     args = argv if argv is not None else sys.argv[1:]
-    return "--verbose" in args
+    return "--all-options" in args
 
 
 def create_cli(
@@ -166,9 +166,9 @@ def create_cli(
     if prog_name is None:
         prog_name = os.path.basename(sys.argv[0]) or "apcore-cli"
 
-    # Pre-parse --verbose before Click runs so build_module_command knows
+    # Pre-parse --all-options before Click runs so build_module_command knows
     # whether to hide built-in options.
-    verbose = _has_verbose_flag()
+    verbose = _has_all_options_flag()
     set_verbose_help(verbose)
 
     # Resolve CLI log level (3-tier precedence, evaluated before Click runs):
@@ -423,8 +423,8 @@ def create_cli(
         help="Log verbosity. Overrides APCORE_CLI_LOGGING_LEVEL and APCORE_LOGGING_LEVEL env vars.",
     )
     @click.option(
-        "--verbose",
-        "verbose_help",
+        "--all-options",
+        "all_options_help",
         is_flag=True,
         default=False,
         help="Show all options in help output (including built-in options).",
@@ -433,7 +433,7 @@ def create_cli(
     def cli(
         ctx: click.Context,
         log_level: str | None = None,
-        verbose_help: bool = False,
+        all_options_help: bool = False,
         **_discovery_opts: Any,  # --extensions-dir/--commands-dir/--binding when standalone
     ) -> None:
         if log_level is not None:
@@ -443,7 +443,7 @@ def create_cli(
             logging.getLogger("apcore").setLevel(apcore_level)
         ctx.ensure_object(dict)
         ctx.obj["extensions_dir"] = ext_dir
-        ctx.obj["verbose_help"] = verbose_help
+        ctx.obj["all_options_help"] = all_options_help
         ctx.obj["exposure_filter"] = exposure_filter
 
     # FE-13 §4.1 / FR-13-13: --extensions-dir, --commands-dir, --binding are

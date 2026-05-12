@@ -46,14 +46,19 @@ logger = logging.getLogger("apcore_cli.cli")
 # Module-level audit logger, set during CLI init
 _audit_logger: AuditLogger | None = None
 
-# Module-level verbose help flag, set during CLI init
-_verbose_help: bool = False
+# Module-level all-options help flag, set during CLI init
+_all_options_help: bool = False
 
 
 def set_verbose_help(verbose: bool) -> None:
-    """Set the verbose help flag. When False, built-in options are hidden."""
-    global _verbose_help
-    _verbose_help = verbose
+    """Set the all-options help flag. When False, built-in options are hidden.
+
+    The parameter name ``verbose`` is kept for backward compatibility with
+    existing embedder code. Internally this controls the ``--all-options``
+    flag introduced in FR-DISP-007.
+    """
+    global _all_options_help
+    _all_options_help = verbose
 
 
 # Module-level docs URL, set by downstream projects
@@ -411,7 +416,7 @@ class GroupedModuleGroup(LazyModuleGroup):
         # Footer hints for discoverability
         formatter.write_paragraph()
         formatter.write(
-            "Use --help --verbose to show all options (including built-in options).\n"
+            "Use --help --all-options to show all options (including built-in options).\n"
             "Use --help --man to display a formatted man page."
         )
 
@@ -807,8 +812,8 @@ def build_module_command(
 
     # Build the command with schema-generated options + built-in options
     _epilog_parts: list[str] = []
-    if not _verbose_help:
-        _epilog_parts.append("Use --verbose to show all options (including built-in options).")
+    if not _all_options_help:
+        _epilog_parts.append("Use --all-options to show all options (including built-in options).")
     if _docs_url:
         _epilog_parts.append(f"Docs: {_docs_url}/commands/{effective_cmd_name}")
     _epilog = "\n".join(_epilog_parts) if _epilog_parts else None
@@ -819,8 +824,8 @@ def build_module_command(
         epilog=_epilog,
     )
 
-    # Add built-in options (hidden unless --verbose is passed with --help)
-    _hide = not _verbose_help
+    # Add built-in options (hidden unless --all-options is passed with --help)
+    _hide = not _all_options_help
     cmd.params.append(
         click.Option(
             ["--input"],
@@ -936,7 +941,7 @@ def build_module_command(
         "format",
         "fields",
         "sandbox",
-        "verbose",
+        "all_options",
         "dry_run",
         "trace",
         "stream",

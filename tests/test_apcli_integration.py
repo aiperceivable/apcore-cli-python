@@ -451,10 +451,10 @@ class TestTotalLockdown:
 
 
 class TestVerboseOrthogonality:
-    def test_t_apcli_34_verbose_does_not_unhide_apcli(self):
-        """T-APCLI-34: --verbose --help with apcli=False keeps apcli hidden."""
+    def test_t_apcli_34_all_options_does_not_unhide_apcli(self):
+        """T-APCLI-34: --all-options --help with apcli=False keeps apcli hidden."""
         cli = _make_embedded_cli(apcli=False)
-        result = CliRunner().invoke(cli, ["--verbose", "--help"])
+        result = CliRunner().invoke(cli, ["--all-options", "--help"])
         assert result.exit_code == 0
         # `apcli` should not appear in the Commands section when hidden.
         commands_section = result.output.split("Commands:")[-1] if "Commands:" in result.output else ""
