@@ -371,11 +371,20 @@ def register_exec_command(
 
         audit_start = time.monotonic()
         try:
-            timeout = approval_timeout if approval_timeout is not None else 60
-            check_approval(module_def, auto_approve=auto_approve, timeout=timeout)
+            # D11-012: pass approval_timeout through unchanged; check_approval
+            # internally resolves explicit arg > APCORE_CLI_APPROVAL_TIMEOUT env > 60s.
+            check_approval(module_def, auto_approve=auto_approve, timeout=approval_timeout)
 
             if dry_run:
-                preflight = executor.validate(module_id, merged)
+                # D11-013: defensive guard mirroring TS discovery.ts:334. Some
+                # embedder-provided Executor subclasses lack `validate`; emit a
+                # synthetic `{valid: True}` preflight instead of crashing with
+                # AttributeError. Rust uses build_preflight_result for the same
+                # synthetic fallback.
+                if hasattr(executor, "validate"):
+                    preflight = executor.validate(module_id, merged)
+                else:
+                    preflight = {"valid": True}
                 format_preflight_result(preflight, output_format)
                 return
 

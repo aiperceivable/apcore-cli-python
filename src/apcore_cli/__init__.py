@@ -78,8 +78,14 @@ from apcore_cli.output import (
     format_module_list,
     resolve_format,
 )
-from apcore_cli.ref_resolver import resolve_refs
-from apcore_cli.schema_parser import schema_to_click_options
+from apcore_cli.ref_resolver import (
+    CircularRefError,
+    MaxDepthExceededError,
+    RefResolverError,
+    UnresolvableRefError,
+    resolve_refs,
+)
+from apcore_cli.schema_parser import reconvert_enum_values, schema_to_click_options
 from apcore_cli.security.audit import AuditLogger
 from apcore_cli.security.auth import AuthenticationError, AuthProvider
 from apcore_cli.security.config_encryptor import ConfigDecryptionError, ConfigEncryptor
@@ -124,6 +130,7 @@ __all__ = [
     # Schema / output / ref resolution
     "resolve_refs",
     "schema_to_click_options",
+    "reconvert_enum_values",  # parity with TS reconvertEnumValues / Rust reconvert_enum_values
     "format_exec_result",
     "format_module_list",
     "format_module_detail",
@@ -166,6 +173,11 @@ __all__ = [
     "ConfigDecryptionError",
     "ModuleExecutionError",
     "ModuleNotFoundError",
+    # Ref-resolver error hierarchy (parity with TS index.ts:82-84).
+    "RefResolverError",
+    "CircularRefError",
+    "MaxDepthExceededError",
+    "UnresolvableRefError",
     # Deprecated alias kept for backward compat — prefer ModuleNotFoundError.
     # Will be removed in v0.10.0.
     "CliModuleNotFoundError",

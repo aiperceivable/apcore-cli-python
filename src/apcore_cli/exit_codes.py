@@ -40,11 +40,9 @@ EXIT_CONFIG_BIND_ERROR = 65
 EXIT_CONFIG_MOUNT_ERROR = 66
 EXIT_ERROR_FORMATTER_DUPLICATE = 70
 EXIT_ACL_DENIED = 77
-# All four namespace/env errors share exit code 78 per protocol spec.
+# Both namespace errors share exit code 78 per protocol spec.
 EXIT_CONFIG_NAMESPACE_RESERVED = 78
 EXIT_CONFIG_NAMESPACE_DUPLICATE = 78
-EXIT_CONFIG_ENV_PREFIX_CONFLICT = 78
-EXIT_CONFIG_ENV_MAP_CONFLICT = 78
 EXIT_SIGINT = 130
 
 # ---------------------------------------------------------------------------

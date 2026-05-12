@@ -65,8 +65,14 @@ class AuditLogger:
 
     def _get_user(self) -> str:
         # Canonical fallback chain (cross-SDK parity, security.md / D11-W1):
-        # getlogin -> pwd.getpwuid(getuid).pw_name -> USER -> LOGNAME
+        # getlogin -> pwd.getpwuid(geteuid).pw_name -> USER -> LOGNAME
         # -> USERNAME -> "unknown".
+        #
+        # D11-010 (2026-05-12): use geteuid() (effective UID) rather than
+        # getuid() (real UID) so that under sudo / setuid binaries the audit
+        # record reflects the privileges the process actually runs with —
+        # matching Rust (nix::unistd::geteuid) and TypeScript (os.userInfo,
+        # which queries the effective UID).
         try:
             return os.getlogin()
         except OSError:
@@ -74,7 +80,7 @@ class AuditLogger:
         try:
             import pwd
 
-            return pwd.getpwuid(os.getuid()).pw_name
+            return pwd.getpwuid(os.geteuid()).pw_name
         except (ImportError, KeyError, AttributeError):
             pass
         return os.getenv("USER") or os.getenv("LOGNAME") or os.getenv("USERNAME") or "unknown"

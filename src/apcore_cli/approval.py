@@ -44,6 +44,33 @@ def _get_annotation(annotations: Any, key: str, default: Any = None) -> Any:
     return getattr(annotations, key, default)
 
 
+def _read_timeout_from_env() -> int | None:
+    """Parse APCORE_CLI_APPROVAL_TIMEOUT, warn on malformed, return None on absent/invalid.
+
+    D11-012 cross-SDK parity: TS's `readTimeoutFromEnv()` reads the same
+    variable; Rust will be aligned in a follow-up. Documented precedence is
+    `CLI flag > env var > 60s default`.
+    """
+    raw = os.environ.get("APCORE_CLI_APPROVAL_TIMEOUT")
+    if raw is None or raw == "":
+        return None
+    try:
+        parsed = int(raw)
+    except ValueError:
+        print(
+            f"Warning: APCORE_CLI_APPROVAL_TIMEOUT='{raw}' is not an integer. Ignoring.",
+            file=sys.stderr,
+        )
+        return None
+    if parsed <= 0:
+        print(
+            f"Warning: APCORE_CLI_APPROVAL_TIMEOUT='{raw}' must be > 0. Ignoring.",
+            file=sys.stderr,
+        )
+        return None
+    return parsed
+
+
 # ---------------------------------------------------------------------------
 # CliApprovalHandler — implements apcore ApprovalHandler protocol (FE-11 §3.5)
 # ---------------------------------------------------------------------------
@@ -59,8 +86,13 @@ class CliApprovalHandler:
     Pass to Executor via ``executor.set_approval_handler(handler)``.
     """
 
-    def __init__(self, auto_approve: bool = False, timeout: int = 60) -> None:
+    def __init__(self, auto_approve: bool = False, timeout: int | None = None) -> None:
         self.auto_approve = auto_approve
+        # D11-012: default-timeout resolution honors APCORE_CLI_APPROVAL_TIMEOUT
+        # env var when caller did not pass an explicit timeout. Precedence:
+        # constructor arg > env var > 60s default. Matches TS readTimeoutFromEnv.
+        if timeout is None:
+            timeout = _read_timeout_from_env() or 60
         self.timeout = max(1, min(timeout, 3600))
 
     async def request_approval(self, request: Any) -> Any:
@@ -71,6 +103,20 @@ class CliApprovalHandler:
         (duck-type compatible with ApprovalResult dataclass).
         """
         module_id = getattr(request, "module_id", "unknown")
+
+        # D11-014: defense-in-depth — short-circuit when the request explicitly
+        # declares it does not require approval. Matches Rust approval.rs:421
+        # (`if !get_requires_approval(module_def) { return Approved::not_required }`).
+        requires_attr = getattr(request, "requires_approval", None)
+        if requires_attr is False:
+            return {"status": "approved", "approved_by": "not_required"}
+        module_def = getattr(request, "module_def", None)
+        if module_def is not None:
+            annotations = getattr(module_def, "annotations", None)
+            if annotations is not None:
+                requires = _get_annotation(annotations, "requires_approval", None)
+                if requires is False:
+                    return {"status": "approved", "approved_by": "not_required"}
 
         # Bypass: auto_approve flag
         if self.auto_approve:
@@ -130,7 +176,7 @@ class CliApprovalHandler:
 # ---------------------------------------------------------------------------
 
 
-def check_approval(module_def: Any, auto_approve: bool, timeout: int = 60) -> None:
+def check_approval(module_def: Any, auto_approve: bool, timeout: int | None = None) -> None:
     """Check if module requires approval and handle accordingly.
 
     Returns None if approved (or approval not required).
@@ -154,6 +200,10 @@ def check_approval(module_def: Any, auto_approve: bool, timeout: int = 60) -> No
     requires = _get_annotation(annotations, "requires_approval", False)
     if requires is not True:
         return
+
+    # D11-012: resolve timeout precedence — explicit arg > APCORE_CLI_APPROVAL_TIMEOUT env > 60s.
+    if timeout is None:
+        timeout = _read_timeout_from_env() or 60
 
     module_id = getattr(module_def, "module_id", getattr(module_def, "canonical_id", "unknown"))
 
