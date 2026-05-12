@@ -26,6 +26,7 @@ from apcore_cli.builtin_group import (
 from apcore_cli.cli import (
     build_module_command,
     collect_input,
+    set_all_options_help,
     set_audit_logger,
     set_docs_url,
     set_verbose_help,
@@ -139,8 +140,9 @@ __all__ = [
     "build_module_command",
     "collect_input",
     "validate_module_id",
+    "set_all_options_help",
     "set_audit_logger",
-    "set_verbose_help",
+    "set_verbose_help",  # deprecated alias for set_all_options_help
     "set_docs_url",
     # Per-subcommand registrar factories (parity with TS/Rust embedder API).
     "register_list_command",

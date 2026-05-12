@@ -126,7 +126,7 @@ The `apcore_cli` package re-exports the following public surface (see [`src/apco
 | Export | Description |
 |--------|-------------|
 | `__version__` | Package version string |
-| `create_cli(...)` | Factory that builds a ready-to-invoke `click.Group`. See the [`create_cli` reference](https://github.com/aiperceivable/apcore-cli) in the docs site for the full 13-parameter signature: `extensions_dir`, `prog_name`, `commands_dir`, `binding_path`, `registry`, `executor`, `extra_commands`, `app`, `expose`, **`apcli`** (FE-13 P0 break), `allowed_prefixes`, `version`, `description`. The `app`, `allowed_prefixes`, `version`, and `description` parameters were added in v0.8.0. |
+| `create_cli(...)` | Factory that builds a ready-to-invoke `click.Group`. See the [`create_cli` reference](https://github.com/aiperceivable/apcore-cli) in the docs site for the full 14-parameter signature: `extensions_dir`, `prog_name`, `commands_dir`, `binding_path`, `registry`, `executor`, `extra_commands`, `app`, `expose`, **`apcli`** (FE-13 P0 break), `allowed_prefixes`, `version`, `description`, **`builtin_group_name`** (default `"apcli"`, v0.8.0+). |
 | `ApcliGroup`, `ApcliMode`, `RESERVED_GROUP_NAMES` | FE-13 built-in `apcli` group surface (P0 break in v0.8.0). |
 | `ExposureFilter` | Declarative filter controlling which modules are exposed by the CLI (FE-12). |
 | `CliApprovalHandler`, `check_approval` | TTY-aware HITL approval handler / helper (FE-11). |
@@ -277,7 +277,7 @@ apcore-cli [OPTIONS] COMMAND [ARGS]
 
 ### Built-in Commands
 
-apcore-cli ships with 13 built-in commands, all accessible under the `apcli` subgroup (e.g. `apcore-cli apcli list`). Root-level shims emit a deprecation warning in v0.8.x and are scheduled for removal in v0.9. Use `apcore-cli apcli <subcommand>` to avoid the warning.
+apcore-cli ships with 13 built-in commands, all accessible under the `apcli` subgroup (e.g. `apcore-cli apcli list`). Root-level shims were removed in v0.9.0 (they emitted deprecation warnings in v0.8.x). Use `apcore-cli apcli <subcommand>`.
 
 **Module invocation**
 
@@ -463,7 +463,7 @@ apcore-cli (the adapter)
     +-- system_cmd                Runtime system-management (health/usage/enable/disable/reload/config)
     +-- strategy                  Execution strategy dispatch (--strategy flag and describe-pipeline)
     +-- init_cmd                  Module scaffolding (init subcommand)
-    +-- set_all_options_help      Toggle built-in option visibility
+    +-- set_verbose_help          Toggle built-in option visibility (internal name; controls --all-options behaviour)
     +-- set_docs_url              Set base URL for online docs
     +-- build_program_man_page    Full-program roff man page
     +-- configure_man_help        Add --help --man support to any CLI

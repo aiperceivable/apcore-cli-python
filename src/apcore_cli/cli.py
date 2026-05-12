@@ -50,15 +50,22 @@ _audit_logger: AuditLogger | None = None
 _all_options_help: bool = False
 
 
-def set_verbose_help(verbose: bool) -> None:
+def set_all_options_help(all_options: bool) -> None:
     """Set the all-options help flag. When False, built-in options are hidden.
 
-    The parameter name ``verbose`` is kept for backward compatibility with
-    existing embedder code. Internally this controls the ``--all-options``
-    flag introduced in FR-DISP-007.
+    Controls the ``--all-options`` flag introduced in FR-DISP-007 (v0.9.0).
     """
     global _all_options_help
-    _all_options_help = verbose
+    _all_options_help = all_options
+
+
+def set_verbose_help(verbose: bool) -> None:
+    """Deprecated alias for :func:`set_all_options_help`.
+
+    The name ``set_verbose_help`` is kept for backward compatibility.
+    Use ``set_all_options_help`` in new code.
+    """
+    set_all_options_help(verbose)
 
 
 # Module-level docs URL, set by downstream projects
