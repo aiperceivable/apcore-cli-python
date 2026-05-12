@@ -68,8 +68,14 @@ def _resolve_node(
         if key not in defs:
             raise UnresolvableRefError(f"Unresolvable $ref '{ref_path}' in schema for module '{module_id}'.")
 
-        visited = visited | {ref_path}
-        return _resolve_node(defs[key], defs, visited, depth + 1, max_depth, module_id)
+        # D11-002: per-chain mutable visited set (matching Rust). Add on the
+        # way down, remove on the way out so sibling subtrees that reference
+        # the same $def don't see a stale "already visited" entry.
+        visited.add(ref_path)
+        try:
+            return _resolve_node(defs[key], defs, visited, depth + 1, max_depth, module_id)
+        finally:
+            visited.discard(ref_path)
 
     # Handle allOf
     if "allOf" in node:
@@ -132,15 +138,23 @@ def _resolve_node(
                     merged[k] = v
             return merged
 
-    # Recursively process nested properties.
+    # Recursively process every dict-valued child of this node.
+    # Audit D11-001 (2026-05-12): previously only `properties` was walked, leaving
+    # $ref unresolved under `items`, `additionalProperties`, `patternProperties`,
+    # `if`/`then`/`else`, `not`, `contains`, `propertyNames`, etc. Cross-SDK
+    # parity with TypeScript ref-resolver.ts:210 and Rust ref_resolver.rs:343,
+    # both of which iterate every object child.
+    #
     # Audit D11-NEW-003 (2026-05-08): max_depth counts $ref hops only — plain
-    # nested-properties recursion does NOT increment `depth`. Previously
-    # incrementing here caused valid deeply-nested schemas (>32 levels of
-    # nested `properties`) to be rejected even when no $ref chain existed.
-    # Aligned with Rust's interpretation of the spec ("Maximum $ref
-    # resolution recursion depth", schema-parser.md §Contract).
-    if "properties" in node:
-        for prop_name, prop_schema in node["properties"].items():
-            node["properties"][prop_name] = _resolve_node(prop_schema, defs, visited, depth, max_depth, module_id)
+    # nested-schema recursion does NOT increment `depth`. Previously
+    # incrementing here caused valid deeply-nested schemas to be rejected even
+    # when no $ref chain existed. Aligned with Rust's interpretation of the
+    # spec ("Maximum $ref resolution recursion depth", schema-parser.md
+    # §Contract).
+    for k, v in node.items():
+        if k in ("$ref", "allOf", "anyOf", "oneOf"):
+            continue
+        if isinstance(v, dict):
+            node[k] = _resolve_node(v, defs, visited, depth, max_depth, module_id)
 
     return node

@@ -187,7 +187,6 @@ class TestConfigEncryptor:
         When USER is unset and LOGNAME=alice, derived material must include
         'alice', not 'unknown'.
         """
-        import os
         import socket
 
         monkeypatch.delenv("USER", raising=False)

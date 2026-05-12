@@ -329,6 +329,78 @@ class TestRefResolverExceptions:
     # Audit D11-NEW-003 (2026-05-08): max_depth counts $ref hops only;
     # plain nested-properties recursion does NOT increment depth. A
     # deeply-nested non-ref schema must resolve cleanly.
+    # D11-001: walk must descend into all dict-valued children, not just
+    # "properties". Previously $ref under items/additionalProperties/
+    # patternProperties was silently left unresolved.
+    def test_resolve_ref_inside_array_items(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/Tag"},
+                },
+            },
+            "$defs": {
+                "Tag": {"type": "object", "properties": {"label": {"type": "string"}}},
+            },
+        }
+        result = resolve_refs(schema, module_id="test")
+        items = result["properties"]["tags"]["items"]
+        assert "properties" in items
+        assert "label" in items["properties"]
+        # $ref must have been replaced.
+        assert "$ref" not in items
+
+    def test_resolve_ref_inside_additional_properties(self):
+        schema = {
+            "type": "object",
+            "additionalProperties": {"$ref": "#/$defs/Value"},
+            "$defs": {
+                "Value": {"type": "object", "properties": {"v": {"type": "integer"}}},
+            },
+        }
+        result = resolve_refs(schema, module_id="test")
+        ap = result["additionalProperties"]
+        assert "properties" in ap
+        assert "v" in ap["properties"]
+        assert "$ref" not in ap
+
+    def test_resolve_ref_inside_pattern_properties(self):
+        schema = {
+            "type": "object",
+            "patternProperties": {
+                "^x_": {"$ref": "#/$defs/Ext"},
+            },
+            "$defs": {
+                "Ext": {"type": "object", "properties": {"ext": {"type": "string"}}},
+            },
+        }
+        result = resolve_refs(schema, module_id="test")
+        ext = result["patternProperties"]["^x_"]
+        assert "properties" in ext
+        assert "ext" in ext["properties"]
+        assert "$ref" not in ext
+
+    # D11-002: diamond $ref pattern — two sibling properties reference the
+    # same $def. Previously copy-on-write visited-set with reuse across
+    # siblings could trigger MaxDepthExceededError on schemas that share defs.
+    def test_diamond_ref_pattern_resolves_without_max_depth(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "first": {"$ref": "#/$defs/Shared"},
+                "second": {"$ref": "#/$defs/Shared"},
+            },
+            "$defs": {
+                "Shared": {"type": "object", "properties": {"v": {"type": "string"}}},
+            },
+        }
+        # Use a small max_depth to ensure stale visited entries would matter.
+        result = resolve_refs(schema, max_depth=5, module_id="test")
+        assert "v" in result["properties"]["first"]["properties"]
+        assert "v" in result["properties"]["second"]["properties"]
+
     def test_deep_nested_properties_does_not_count_against_max_depth(self):
         nested: dict = {"type": "string"}
         for _ in range(50):
