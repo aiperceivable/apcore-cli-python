@@ -31,7 +31,17 @@ class ConfigEncryptor:
         if self._keyring_available():
             import keyring as kr
 
-            kr.set_password(self.SERVICE_NAME, key, value)
+            # D11-004: wrap backend failures so callers see a typed
+            # ConfigDecryptionError with actionable guidance, rather than
+            # leaking raw keyring exceptions (PasswordSetError, KeyringError,
+            # RuntimeError, etc).
+            try:
+                kr.set_password(self.SERVICE_NAME, key, value)
+            except Exception as exc:
+                raise ConfigDecryptionError(
+                    f"Failed to store '{key}' in OS keyring: {exc}. "
+                    "Consider unsetting APCORE_CLI_USE_KEYRING."
+                ) from exc
             return f"keyring:{key}"
         else:
             logger.warning(
@@ -60,7 +70,7 @@ class ConfigEncryptor:
                 return self._aes_decrypt(data)
             except (InvalidTag, ValueError, binascii.Error, UnicodeDecodeError) as exc:
                 raise ConfigDecryptionError(
-                    f"Failed to decrypt configuration value '{key}'. Re-configure with 'apcore-cli config set {key}'."
+                    f"Failed to decrypt configuration value '{key}'. Re-store with 'apcli config set {key}'."
                 ) from exc
         elif config_value.startswith("enc:"):
             try:
@@ -68,7 +78,7 @@ class ConfigEncryptor:
                 return self._aes_decrypt_v1(data)
             except (InvalidTag, ValueError, binascii.Error, UnicodeDecodeError, ConfigDecryptionError) as exc:
                 raise ConfigDecryptionError(
-                    f"Failed to decrypt configuration value '{key}'. Re-configure with 'apcore-cli config set {key}'."
+                    f"Failed to decrypt configuration value '{key}'. Re-store with 'apcli config set {key}'."
                 ) from exc
         else:
             return config_value
@@ -93,7 +103,10 @@ class ConfigEncryptor:
             material = passphrase.encode()
         else:
             hostname = socket.gethostname()
-            username = os.getenv("USER", os.getenv("USERNAME", "unknown"))
+            # D10-001: 4-tier fallback USER → LOGNAME → USERNAME → "unknown",
+            # matching cross-SDK identity-resolution spec. `os.getenv("USER", ...)`
+            # would silently shadow LOGNAME if USER was empty-string vs unset.
+            username = os.getenv("USER") or os.getenv("LOGNAME") or os.getenv("USERNAME") or "unknown"
             material = f"{hostname}:{username}".encode()
         return hashlib.pbkdf2_hmac("sha256", material, salt, iterations=_PBKDF2_ITERATIONS)
 
@@ -162,5 +175,6 @@ class ConfigEncryptor:
 
     def _v1_material(self) -> bytes:
         hostname = socket.gethostname()
-        username = os.getenv("USER", os.getenv("USERNAME", "unknown"))
+        # D10-001: 4-tier USER → LOGNAME → USERNAME → "unknown" fallback.
+        username = os.getenv("USER") or os.getenv("LOGNAME") or os.getenv("USERNAME") or "unknown"
         return f"{hostname}:{username}".encode()

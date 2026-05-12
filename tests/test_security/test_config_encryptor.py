@@ -181,6 +181,90 @@ class TestConfigEncryptor:
             decrypted = enc._aes_decrypt(ciphertext)
         assert decrypted == plaintext
 
+    def test_derive_key_uses_logname_when_user_unset(self, monkeypatch):
+        """D10-001: USER → LOGNAME → USERNAME → unknown fallback chain.
+
+        When USER is unset and LOGNAME=alice, derived material must include
+        'alice', not 'unknown'.
+        """
+        import os
+        import socket
+
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.delenv("USERNAME", raising=False)
+        monkeypatch.delenv("APCORE_CLI_CONFIG_PASSPHRASE", raising=False)
+        monkeypatch.setenv("LOGNAME", "alice")
+
+        enc = ConfigEncryptor()
+        # Capture material via patching pbkdf2_hmac to inspect input.
+        captured: dict[str, bytes] = {}
+        import hashlib as _hl
+
+        real_pbkdf2 = _hl.pbkdf2_hmac
+
+        def _spy(algo, material, salt, iterations, dklen=None):
+            captured["material"] = material
+            return real_pbkdf2(algo, material, salt, iterations) if dklen is None else real_pbkdf2(
+                algo, material, salt, iterations, dklen
+            )
+
+        with patch.object(_hl, "pbkdf2_hmac", side_effect=_spy):
+            enc._derive_key(b"x" * 16)
+
+        hostname = socket.gethostname()
+        expected = f"{hostname}:alice".encode()
+        assert captured["material"] == expected
+        assert b"alice" in captured["material"]
+        assert b"unknown" not in captured["material"]
+
+    def test_v1_material_uses_logname_when_user_unset(self, monkeypatch):
+        """D10-001: _v1_material() must use USER → LOGNAME → USERNAME → unknown."""
+        import socket
+
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.delenv("USERNAME", raising=False)
+        monkeypatch.setenv("LOGNAME", "alice")
+
+        enc = ConfigEncryptor()
+        material = enc._v1_material()
+        hostname = socket.gethostname()
+        assert material == f"{hostname}:alice".encode()
+        assert b"alice" in material
+        assert b"unknown" not in material
+
+    def test_store_wraps_keyring_set_password_failure(self):
+        """D11-004: keyring.set_password failures must be wrapped in ConfigDecryptionError.
+
+        Raw backend errors (e.g. KeyringError, PasswordSetError) leak
+        implementation details and confuse users. The wrapper should
+        suggest unsetting APCORE_CLI_USE_KEYRING.
+        """
+        enc = ConfigEncryptor()
+        mock_kr = MagicMock()
+        mock_kr.set_password.side_effect = RuntimeError("keyring backend not available")
+        with (
+            patch.object(enc, "_keyring_available", return_value=True),
+            patch.dict("sys.modules", {"keyring": mock_kr}),
+            pytest.raises(ConfigDecryptionError, match="Failed to store"),
+        ):
+            enc.store("auth.api_key", "secret123")
+
+    def test_store_keyring_failure_mentions_unset_env_var(self):
+        """D11-004: error message must guide the user to unset APCORE_CLI_USE_KEYRING."""
+        enc = ConfigEncryptor()
+        mock_kr = MagicMock()
+        mock_kr.set_password.side_effect = RuntimeError("backend broken")
+        with (
+            patch.object(enc, "_keyring_available", return_value=True),
+            patch.dict("sys.modules", {"keyring": mock_kr}),
+        ):
+            try:
+                enc.store("auth.api_key", "secret123")
+            except ConfigDecryptionError as exc:
+                assert "APCORE_CLI_USE_KEYRING" in str(exc)
+            else:
+                pytest.fail("Expected ConfigDecryptionError")
+
     def test_store_fallback_warning_names_obfuscation_not_encryption(self, caplog):
         """W7: wording correction — log must NOT promise strong 'encryption'."""
         import logging
