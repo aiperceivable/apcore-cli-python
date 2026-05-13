@@ -40,7 +40,6 @@ dependencies = [
 dev = [
     "apdev[dev]>=0.2.3",
     "pytest>=7.0",
-    "pytest-asyncio>=0.23",
     "pytest-cov>=4.0",
     "mypy>=1.0",
     "ruff>=0.1",

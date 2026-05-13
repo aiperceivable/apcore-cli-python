@@ -17,6 +17,7 @@ from apcore_cli.approval import (
 )
 from apcore_cli.builtin_group import (
     APCLI_SUBCOMMAND_NAMES,
+    DEFAULT_BUILTIN_GROUP_NAME,
     RESERVED_GROUP_NAMES,
     ApcliConfig,
     ApcliGroup,
@@ -121,6 +122,7 @@ __all__ = [
     "ApcliGroupError",
     "ApcliMode",
     "APCLI_SUBCOMMAND_NAMES",
+    "DEFAULT_BUILTIN_GROUP_NAME",
     "RESERVED_GROUP_NAMES",
     # FE-11 approval
     "CliApprovalHandler",
