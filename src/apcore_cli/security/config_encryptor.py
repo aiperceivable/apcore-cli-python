@@ -39,8 +39,7 @@ class ConfigEncryptor:
                 kr.set_password(self.SERVICE_NAME, key, value)
             except Exception as exc:
                 raise ConfigDecryptionError(
-                    f"Failed to store '{key}' in OS keyring: {exc}. "
-                    "Consider unsetting APCORE_CLI_USE_KEYRING."
+                    f"Failed to store '{key}' in OS keyring: {exc}. " "Consider unsetting APCORE_CLI_USE_KEYRING."
                 ) from exc
             return f"keyring:{key}"
         else:

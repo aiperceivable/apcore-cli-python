@@ -203,8 +203,10 @@ class TestConfigEncryptor:
 
         def _spy(algo, material, salt, iterations, dklen=None):
             captured["material"] = material
-            return real_pbkdf2(algo, material, salt, iterations) if dklen is None else real_pbkdf2(
-                algo, material, salt, iterations, dklen
+            return (
+                real_pbkdf2(algo, material, salt, iterations)
+                if dklen is None
+                else real_pbkdf2(algo, material, salt, iterations, dklen)
             )
 
         with patch.object(_hl, "pbkdf2_hmac", side_effect=_spy):

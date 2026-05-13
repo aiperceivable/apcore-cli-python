@@ -381,10 +381,7 @@ def register_exec_command(
                 # synthetic `{valid: True}` preflight instead of crashing with
                 # AttributeError. Rust uses build_preflight_result for the same
                 # synthetic fallback.
-                if hasattr(executor, "validate"):
-                    preflight = executor.validate(module_id, merged)
-                else:
-                    preflight = {"valid": True}
+                preflight = executor.validate(module_id, merged) if hasattr(executor, "validate") else {"valid": True}
                 format_preflight_result(preflight, output_format)
                 return
 
