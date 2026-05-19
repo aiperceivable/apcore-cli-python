@@ -7,6 +7,12 @@ from pathlib import Path
 
 import click
 
+# Templates emit `# TODO: implement` placeholders into the GENERATED user
+# module. These are user-facing scaffolding — not SDK source-level TODOs —
+# and intentionally match the parity templates in
+# `../apcore-cli-typescript/src/init-cmd.ts` and
+# `../apcore-cli-rust/src/init_cmd.rs`. Audit tools that grep for "TODO"
+# should treat occurrences inside the template literals below as expected.
 _DECORATOR_TEMPLATE = '''"""Module: {module_id}"""
 
 from apcore import module

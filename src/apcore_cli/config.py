@@ -26,13 +26,16 @@ def register_config_namespace() -> bool:
     Public helper mirroring apcore-cli-typescript's ``registerConfigNamespace``
     and apcore-cli-rust's equivalent registration call site so embedders can
     invoke registration explicitly. Returns ``True`` when registration
-    succeeded, ``False`` when apcore is missing or too old (which silently
-    skips registration — matching the prior inline behaviour).
+    succeeded.
+
+    ``apcore`` is a required runtime dependency
+    (``pyproject.toml`` pins ``apcore>=0.21.0``) so the import is performed
+    locally rather than guarded — a missing or too-old apcore is a hard
+    install error, not a silent no-op. The prior graceful-fallback path
+    was removed in the 6.2 fix.
     """
-    try:
-        from apcore import Config
-    except (ImportError, AttributeError):
-        return False
+    from apcore import Config
+
     Config.register_namespace(
         name="apcore-cli",
         schema=None,

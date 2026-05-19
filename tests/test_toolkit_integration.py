@@ -61,9 +61,9 @@ class TestApplyToolkitIntegration:
         fake_writer_cls = MagicMock(return_value=fake_writer)
 
         with (
-            patch("apcore_toolkit.BindingLoader", fake_loader_cls),
-            patch("apcore_toolkit.DisplayResolver", fake_resolver_cls),
-            patch("apcore_toolkit.RegistryWriter", fake_writer_cls),
+            patch("apcore_cli.factory.BindingLoader", fake_loader_cls),
+            patch("apcore_cli.factory.DisplayResolver", fake_resolver_cls),
+            patch("apcore_cli.factory.RegistryWriter", fake_writer_cls),
         ):
             registry = MagicMock()
             _apply_toolkit_integration(
@@ -92,9 +92,9 @@ class TestApplyToolkitIntegration:
         fake_writer.write.return_value = []
 
         with (
-            patch("apcore_toolkit.BindingLoader", MagicMock(return_value=fake_loader)),
-            patch("apcore_toolkit.DisplayResolver", MagicMock(return_value=MagicMock(resolve=lambda m, **kw: m))),
-            patch("apcore_toolkit.RegistryWriter", MagicMock(return_value=fake_writer)),
+            patch("apcore_cli.factory.BindingLoader", MagicMock(return_value=fake_loader)),
+            patch("apcore_cli.factory.DisplayResolver", MagicMock(return_value=MagicMock(resolve=lambda m, **kw: m))),
+            patch("apcore_cli.factory.RegistryWriter", MagicMock(return_value=fake_writer)),
         ):
             _apply_toolkit_integration(
                 MagicMock(),
@@ -121,10 +121,10 @@ class TestApplyToolkitIntegration:
         fake_writer.write.return_value = []
 
         with (
-            patch("apcore_toolkit.convention_scanner.ConventionScanner", fake_scanner_cls),
-            patch("apcore_toolkit.BindingLoader", MagicMock(return_value=fake_loader)),
-            patch("apcore_toolkit.DisplayResolver", MagicMock(return_value=MagicMock(resolve=lambda m, **kw: m))),
-            patch("apcore_toolkit.RegistryWriter", MagicMock(return_value=fake_writer)),
+            patch("apcore_cli.factory.ConventionScanner", fake_scanner_cls),
+            patch("apcore_cli.factory.BindingLoader", MagicMock(return_value=fake_loader)),
+            patch("apcore_cli.factory.DisplayResolver", MagicMock(return_value=MagicMock(resolve=lambda m, **kw: m))),
+            patch("apcore_cli.factory.RegistryWriter", MagicMock(return_value=fake_writer)),
         ):
             _apply_toolkit_integration(
                 MagicMock(),
@@ -138,54 +138,17 @@ class TestApplyToolkitIntegration:
         assert scan_module in written
         assert bind_module in written
 
-    def test_toolkit_missing_logs_warning_and_returns(self, caplog):
-        import builtins
-        import logging as pylogging
-
-        real_import = builtins.__import__
-
-        def fail_toolkit(name, *args, **kw):
-            if name == "apcore_toolkit":
-                raise ImportError("no toolkit")
-            return real_import(name, *args, **kw)
-
-        with (
-            caplog.at_level(pylogging.WARNING, logger="apcore_cli"),
-            patch("builtins.__import__", side_effect=fail_toolkit),
-        ):
-            _apply_toolkit_integration(
-                MagicMock(),
-                commands_dir="/cmds",
-                binding_path=None,
-                allowed_prefixes=None,
-            )
-        assert "apcore-toolkit not installed" in caplog.text
-
-    def test_binding_loader_missing_warns_but_continues(self, caplog):
-        """toolkit < 0.5.0 lacks BindingLoader — match TS parity: warn + skip."""
-        import builtins
-        import logging as pylogging
-
-        real_import = builtins.__import__
-
-        def partial_import(name, globals_=None, locals_=None, fromlist=(), level=0):
-            # Simulate toolkit installed but missing BindingLoader: when the
-            # factory tries `from apcore_toolkit import BindingLoader`, raise.
-            if name == "apcore_toolkit" and "BindingLoader" in (fromlist or ()):
-                raise ImportError("BindingLoader not in 0.4.x")
-            return real_import(name, globals_, locals_, fromlist, level)
-
-        with (
-            caplog.at_level(pylogging.WARNING, logger="apcore_cli"),
-            patch("builtins.__import__", side_effect=partial_import),
-        ):
-            _apply_toolkit_integration(
-                MagicMock(),
-                commands_dir=None,
-                binding_path="/bindings",
-                allowed_prefixes=None,
-            )
-        assert "BindingLoader unavailable" in caplog.text
+    # Removed in 0.10.0 (resolves 6.2): the prior graceful-fallback paths
+    # for "apcore-toolkit missing" and "apcore-toolkit < 0.5.0 (no
+    # BindingLoader)" no longer exist — apcore-toolkit >= 0.7.0 is a hard
+    # runtime dependency declared in pyproject.toml, so a missing or
+    # too-old toolkit is a ModuleNotFoundError at import time, not a
+    # silently logged WARNING. The two former tests
+    # (`test_toolkit_missing_logs_warning_and_returns` and
+    # `test_binding_loader_missing_warns_but_continues`) are intentionally
+    # deleted — they asserted behaviour that the fix removed. The
+    # import-time failure mode is already covered by Python's standard
+    # ModuleNotFoundError contract and does not need a bespoke test.
 
     def test_binding_loader_failure_is_soft(self, caplog):
         """BindingLoader.load() raises → WARN, don't crash create_cli."""
@@ -199,9 +162,9 @@ class TestApplyToolkitIntegration:
 
         with (
             caplog.at_level(pylogging.WARNING, logger="apcore_cli"),
-            patch("apcore_toolkit.BindingLoader", MagicMock(return_value=fake_loader)),
-            patch("apcore_toolkit.DisplayResolver", MagicMock()),
-            patch("apcore_toolkit.RegistryWriter", MagicMock()),
+            patch("apcore_cli.factory.BindingLoader", MagicMock(return_value=fake_loader)),
+            patch("apcore_cli.factory.DisplayResolver", MagicMock()),
+            patch("apcore_cli.factory.RegistryWriter", MagicMock()),
         ):
             _apply_toolkit_integration(
                 MagicMock(),
@@ -219,9 +182,9 @@ class TestApplyToolkitIntegration:
         fake_writer = MagicMock()
 
         with (
-            patch("apcore_toolkit.BindingLoader", MagicMock(return_value=fake_loader)),
-            patch("apcore_toolkit.DisplayResolver", MagicMock()),
-            patch("apcore_toolkit.RegistryWriter", MagicMock(return_value=fake_writer)),
+            patch("apcore_cli.factory.BindingLoader", MagicMock(return_value=fake_loader)),
+            patch("apcore_cli.factory.DisplayResolver", MagicMock()),
+            patch("apcore_cli.factory.RegistryWriter", MagicMock(return_value=fake_writer)),
         ):
             _apply_toolkit_integration(
                 MagicMock(),
@@ -320,9 +283,9 @@ class TestBindingPathStandaloneE2E:
         fake_writer.write.return_value = []
 
         with (
-            patch("apcore_toolkit.BindingLoader", MagicMock(return_value=fake_loader)),
-            patch("apcore_toolkit.DisplayResolver", MagicMock(return_value=MagicMock(resolve=lambda m, **kw: m))),
-            patch("apcore_toolkit.RegistryWriter", MagicMock(return_value=fake_writer)),
+            patch("apcore_cli.factory.BindingLoader", MagicMock(return_value=fake_loader)),
+            patch("apcore_cli.factory.DisplayResolver", MagicMock(return_value=MagicMock(resolve=lambda m, **kw: m))),
+            patch("apcore_cli.factory.RegistryWriter", MagicMock(return_value=fake_writer)),
         ):
             cli = create_cli(
                 extensions_dir=str(tmp_path),

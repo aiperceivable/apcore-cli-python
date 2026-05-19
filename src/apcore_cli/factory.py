@@ -18,6 +18,14 @@ from typing import Any
 
 import click
 
+# apcore-toolkit is a REQUIRED runtime dependency (pyproject.toml pins
+# `apcore-toolkit>=0.7.0`). Static import — no ImportError fallback. If
+# toolkit is missing the import fails at module load time with a clear
+# ModuleNotFoundError, matching the pyproject contract. See CHANGELOG for
+# the 6.2 fix that removed the prior graceful-fallback path.
+from apcore_toolkit import BindingLoader, DisplayResolver, RegistryWriter
+from apcore_toolkit.convention_scanner import ConventionScanner
+
 from apcore_cli.builtin_group import ApcliGroup
 from apcore_cli.cli import GroupedModuleGroup, set_audit_logger, set_verbose_help
 from apcore_cli.config import ConfigResolver
@@ -571,25 +579,18 @@ def _apply_toolkit_integration(
     single registration path ensures ``--allowed-prefix`` protection
     applies to both sources consistently.
 
-    Silently no-op if ``apcore-toolkit`` is not installed; individual
-    optional features (``BindingLoader`` in toolkit < 0.5) degrade to
-    a WARNING and are skipped.
+    Toolkit symbols are imported statically at module top — the package
+    is a required runtime dep (``pyproject.toml`` pins
+    ``apcore-toolkit>=0.7.0``). Operational failures inside scanner /
+    loader / writer calls still degrade to a WARNING.
     """
     if commands_dir is None and binding_path is None:
-        return
-
-    try:
-        from apcore_toolkit import DisplayResolver, RegistryWriter
-    except ImportError:
-        logger.warning("apcore-toolkit not installed — toolkit features unavailable")
         return
 
     scanned: list[Any] = []
 
     if commands_dir is not None:
         try:
-            from apcore_toolkit.convention_scanner import ConventionScanner
-
             scanner = ConventionScanner()
             scanned.extend(scanner.scan(commands_dir))
         except Exception as e:
@@ -597,23 +598,16 @@ def _apply_toolkit_integration(
 
     if binding_path is not None:
         try:
-            from apcore_toolkit import BindingLoader
-        except ImportError:
-            # apcore-toolkit < 0.5.0 — silently skip the overlay (parity with
-            # TS main.ts:761 "apcore-toolkit < 0.5.0 (no BindingLoader)").
-            logger.warning("apcore-toolkit < 0.5.0: BindingLoader unavailable, --binding skipped")
-        else:
-            try:
-                loader = BindingLoader()
-                loaded = loader.load(binding_path)
-                scanned.extend(loaded)
-                logger.info(
-                    "BindingLoader: parsed %d module(s) from %s",
-                    len(loaded),
-                    binding_path,
-                )
-            except Exception as e:
-                logger.warning("BindingLoader failed on '%s': %s", binding_path, e)
+            loader = BindingLoader()
+            loaded = loader.load(binding_path)
+            scanned.extend(loaded)
+            logger.info(
+                "BindingLoader: parsed %d module(s) from %s",
+                len(loaded),
+                binding_path,
+            )
+        except Exception as e:
+            logger.warning("BindingLoader failed on '%s': %s", binding_path, e)
 
     if not scanned:
         return

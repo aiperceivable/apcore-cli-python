@@ -8,7 +8,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import click
-from apcore_toolkit import format_csv, format_jsonl
+from apcore_toolkit import format_csv, format_jsonl, format_module, format_modules
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -21,12 +21,6 @@ if TYPE_CHECKING:
     from apcore.registry.types import ModuleDescriptor
 
 logger = logging.getLogger(__name__)
-
-
-_TOOLKIT_MISSING_HINT = (
-    "The 'markdown' and 'skill' output formats require the apcore-toolkit "
-    "extra. Install with: pip install 'apcore-cli[toolkit]'"
-)
 
 
 def _to_rows_for_tabular(value: Any) -> list[dict] | None:
@@ -140,11 +134,6 @@ def format_module_list(
 
         Console().print(table)
     elif format in ("markdown", "skill"):
-        try:
-            from apcore_toolkit import format_modules
-        except ImportError as exc:  # pragma: no cover - exercised via integration only
-            raise click.ClickException(_TOOLKIT_MISSING_HINT) from exc
-
         scanned = [_descriptor_to_scanned(m) for m in modules]
         click.echo(format_modules(scanned, style=format, display=True))
     elif format in ("json", "csv", "yaml", "jsonl"):
@@ -266,11 +255,6 @@ def format_module_detail(module_def: ModuleDescriptor, format: str) -> None:
             click.echo(f"\nTags: {', '.join(tags)}")
 
     elif format in ("markdown", "skill"):
-        try:
-            from apcore_toolkit import format_module
-        except ImportError as exc:  # pragma: no cover - exercised via integration only
-            raise click.ClickException(_TOOLKIT_MISSING_HINT) from exc
-
         click.echo(format_module(_descriptor_to_scanned(module_def), style=format, display=True))
 
     elif format == "json":

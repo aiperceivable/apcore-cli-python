@@ -5,6 +5,20 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-05-18
+
+### Changed — BREAKING
+
+- **Removed graceful ImportError fallbacks for `apcore` and `apcore-toolkit` (resolves 6.2).** Both packages are declared as required runtime dependencies in `pyproject.toml` (`apcore>=0.21.0`, `apcore-toolkit>=0.7.0`) — the prior `try: from apcore_toolkit import X; except ImportError: logger.warning(...); return` pattern in `factory.py` and the `try: from apcore import Config; except (ImportError, AttributeError): return False` pattern in `config.py` were self-contradictory: the dep was hard-required by the package manifest but soft-degraded at runtime. The fallbacks have been removed; missing or too-old `apcore` / `apcore-toolkit` now fails fast at import time with `ModuleNotFoundError`, matching the manifest contract.
+  - Sites cleaned up: `factory.py:581-616` (DisplayResolver/RegistryWriter/ConventionScanner/BindingLoader), `output.py:144-146/270-272` (format_module/format_modules), `config.py:32-35` (apcore.Config).
+  - Toolkit symbols are now imported once at the top of `factory.py` and `output.py`.
+  - The `_TOOLKIT_MISSING_HINT` constant in `output.py` is removed (no longer reachable).
+- **Tests updated**: two tests that asserted the removed fallback behaviour (`test_toolkit_missing_logs_warning_and_returns`, `test_binding_loader_missing_warns_but_continues`) are deleted; the import-time failure mode is covered by Python's standard `ModuleNotFoundError`. Remaining `_apply_toolkit_integration` tests now patch `apcore_cli.factory.{BindingLoader,DisplayResolver,RegistryWriter,ConventionScanner}` instead of `apcore_toolkit.X` (standard "patch where the name is used" Python mock convention now that the imports are static).
+
+### Migration
+
+- If your environment previously relied on the soft-degrade behaviour (apcore-cli running with `apcore-toolkit` uninstalled), install the package: `pip install apcore-toolkit>=0.7.0`. With the manifest already declaring it required, this should already be satisfied by any standard `pip install apcore-cli` invocation.
+
 ## [0.9.0] - 2026-05-13
 
 ### Added
