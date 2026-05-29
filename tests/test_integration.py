@@ -9,7 +9,8 @@ from click.testing import CliRunner
 
 from apcore_cli.cli import LazyModuleGroup, build_module_command, set_audit_logger
 from apcore_cli.discovery import register_discovery_commands
-from apcore_cli.shell import register_shell_commands
+
+from .shell_test_utils import register_shell_commands
 
 
 def _make_module_def(

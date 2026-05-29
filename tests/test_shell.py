@@ -9,8 +9,8 @@ from apcore_cli.shell import (
     _generate_zsh_completion,
     build_program_man_page,
     configure_man_help,
-    register_shell_commands,
 )
+from .shell_test_utils import register_shell_commands
 
 _PROG = "apcore-cli"
 
