@@ -10,6 +10,7 @@ from apcore_cli.shell import (
     build_program_man_page,
     configure_man_help,
 )
+
 from .shell_test_utils import register_shell_commands
 
 _PROG = "apcore-cli"
