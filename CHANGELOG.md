@@ -5,6 +5,32 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-06-15
+
+### Changed
+
+- **Required runtime bumped to apcore 0.24.0 and apcore-toolkit 0.8.1.** Dependency
+  floors in `pyproject.toml` raised from `apcore>=0.22.0` / `apcore-toolkit>=0.8.0`
+  to `apcore>=0.24.0` / `apcore-toolkit>=0.8.1`, tracking the aligned apcore 0.24.0
+  and apcore-toolkit 0.8.1 releases. **No source changes** — the full test suite
+  passes unchanged.
+
+  The apcore 0.22.0 → 0.24.0 delta does not touch any surface the CLI consumes:
+  - **Per-instance `ToggleState` isolation (#71)** — the CLI never constructs
+    `ToggleState`/`APCore` nor calls the free `is_module_disabled()`; module
+    toggling is delegated to the `system.control.toggle_feature` module via
+    `Executor.call()`.
+  - **Default AI error-recovery metadata (#70)** and **error `details` snake_case
+    key alignment (A-D-019)** — the CLI reads error fields (`details`, `suggestion`,
+    `ai_guidance`, `retryable`, `user_fixable`) via `getattr()` and passes `details`
+    through verbatim, so it is agnostic to both new defaults and inner-key casing.
+  - **`Registry.list()` / `get_definition()` / `Executor.call()` / `call_with_trace()`
+    / `set_approval_handler()`** signatures are unchanged across the delta; descriptor
+    fields are read defensively with fallbacks.
+  - Out of scope and unused by the CLI: `CircuitBreakerMiddleware`, `A2ASubscriber`,
+    DLQ/`original_event`, `apcore.Config.validate()`, `Context.create()`, redaction
+    utilities, `EventEmitter`.
+
 ## [0.10.0] - 2026-05-18
 
 ### Changed — BREAKING
