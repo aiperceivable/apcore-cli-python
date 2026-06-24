@@ -5,6 +5,29 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-06-24
+
+### Changed
+
+- **Required runtime bumped to apcore 0.25.0 and apcore-toolkit 0.9.1.** Dependency
+  floors in `pyproject.toml` raised from `apcore>=0.24.0` / `apcore-toolkit>=0.8.1`
+  to `apcore>=0.25.0` / `apcore-toolkit>=0.9.1`, tracking the aligned apcore 0.25.0
+  and apcore-toolkit 0.9.1 releases. **No source changes** — the full test suite
+  passes unchanged.
+
+  Neither delta touches a surface the CLI consumes:
+  - **apcore 0.24.0 → 0.25.0** adds config-driven ACL discovery (`acl.root`
+    activation + `ACL.discover`), auto-wired only by the `APCore` bootstrap and
+    skipped when the caller supplies its own `Executor`. The CLI never constructs
+    `APCore`, so discovery does not engage; the change is backward-compatible
+    regardless (a missing `acl.root` attaches no ACL, preserving the no-enforcement
+    default).
+  - **apcore-toolkit 0.8.1 → 0.9.1** is a bug-fix release; the Python fix (OpenAPI
+    parser handling integer status-code keys and explicit `null`) lives in
+    `extract_output_schema`, which the CLI does not call. The toolkit surface the
+    CLI uses (`RegistryWriter`, `BindingLoader`, `DisplayResolver`, `format_*`) is
+    unchanged.
+
 ## [0.10.1] - 2026-06-15
 
 ### Changed
