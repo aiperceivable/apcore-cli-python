@@ -48,7 +48,7 @@ Terminal adapter for apcore. Execute AI-Perceivable modules from the command lin
 pip install apcore-cli
 ```
 
-Requires Python 3.11+, `apcore >= 0.21.0`, and `apcore-toolkit >= 0.7.0` (now a **required** runtime dependency as of v0.9.0 — previously optional; see the [tech-design ADR-09](https://github.com/aiperceivable/apcore-cli/blob/main/docs/tech-design.md) for the byte-equivalent toolkit-delegated tier rationale). The `[toolkit]` extras group is retained as a no-op for backward compat:
+Requires Python 3.11+, `apcore >= 0.21.0`, and `apcore-toolkit >= 0.10.0` (now a **required** runtime dependency as of v0.9.0 — previously optional; see the [tech-design ADR-09](https://github.com/aiperceivable/apcore-cli/blob/main/docs/tech-design.md) for the byte-equivalent toolkit-delegated tier rationale). The `[toolkit]` extras group is retained as a no-op for backward compat:
 
 ```bash
 pip install "apcore-cli[toolkit]"   # equivalent to plain `pip install apcore-cli`

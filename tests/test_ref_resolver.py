@@ -415,3 +415,26 @@ class TestRefResolverExceptions:
             cur = cur["properties"]["inner"]
             depth_seen += 1
         assert depth_seen == 50
+
+
+class TestOptionalTypeRecovery:
+    """Optional[X] (Pydantic v2 anyOf-null) must recover the scalar `type` so the
+    schema parser does not fall through to a "no type" warning."""
+
+    def test_optional_scalar_recovers_type(self):
+        result = resolve_refs(
+            {
+                "type": "object",
+                "properties": {"name": {"anyOf": [{"type": "string"}, {"type": "null"}]}},
+            }
+        )
+        assert result["properties"]["name"]["type"] == "string"
+
+    def test_optional_list_form_type_recovers_string(self):
+        result = resolve_refs(
+            {
+                "type": "object",
+                "properties": {"name": {"anyOf": [{"type": ["string", "null"]}, {"type": "null"}]}},
+            }
+        )
+        assert result["properties"]["name"]["type"] == "string"

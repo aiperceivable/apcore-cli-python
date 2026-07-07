@@ -34,9 +34,44 @@ RESERVED_PROPERTY_NAMES: frozenset[str] = frozenset(
 )
 
 
+def _resolve_type_from_any_of(prop_schema: dict) -> str | None:
+    """Extract the dominant non-null type from an anyOf schema.
+
+    Pydantic v2 emits Optional[X] as {"anyOf": [<X-schema>, {"type": "null"}]}.
+    We pick the first non-null branch and return its type string so the caller
+    can avoid a "no type" warning for what is effectively a typed optional field.
+    $ref entries (nested models) are treated as "object".
+    """
+    branches = [b for b in prop_schema.get("anyOf", []) if b.get("type") != "null"]
+    if not branches:
+        return None
+    first = branches[0]
+    branch_type = first.get("type")
+    if isinstance(branch_type, str):
+        return branch_type
+    if isinstance(branch_type, list):
+        # JSON Schema list-form type (e.g. ["string", "null"]): first non-null string.
+        return next((t for t in branch_type if isinstance(t, str) and t != "null"), None)
+    if "$ref" in first:  # nested model
+        return "object"
+    return None
+
+
 def _map_type(prop_name: str, prop_schema: dict) -> Any:
     """Map JSON Schema type to Click parameter type."""
     schema_type = prop_schema.get("type")
+
+    # JSON Schema allows a list-form type (e.g. ["string", "null"]). Reduce it to
+    # the first non-null string so it maps cleanly and never reaches the
+    # (hashable-key) type_map lookup below as an unhashable list.
+    if isinstance(schema_type, list):
+        schema_type = next((t for t in schema_type if isinstance(t, str) and t != "null"), None)
+
+    # Pydantic v2 generates Optional[X] as {"anyOf": [<X-schema>, {"type": "null"}]}
+    # rather than {"type": "X"}.  Resolve the dominant branch so we don't fall
+    # through to the "no type specified" warning for every optional field.
+    if schema_type is None and "anyOf" in prop_schema:
+        schema_type = _resolve_type_from_any_of(prop_schema)
 
     # Check file convention
     if schema_type == "string" and (prop_name.endswith("_file") or prop_schema.get("x-cli-file") is True):

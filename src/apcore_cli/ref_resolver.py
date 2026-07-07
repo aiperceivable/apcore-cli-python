@@ -117,8 +117,10 @@ def _resolve_node(
                 merged["properties"].update(node["properties"])
             sibling_required: list[str] = list(node["required"]) if isinstance(node.get("required"), list) else []
             all_required_sets: list[set[str]] = []
+            resolved_branches: list[dict] = []
             for sub_schema in node[keyword]:
                 resolved = _resolve_node(sub_schema, defs, visited, depth + 1, max_depth, module_id)
+                resolved_branches.append(resolved)
                 if "properties" in resolved:
                     merged["properties"].update(resolved["properties"])
                 if "required" in resolved:
@@ -136,6 +138,28 @@ def _resolve_node(
             for k, v in node.items():
                 if k not in (keyword, "properties", "required") and k not in merged:
                     merged[k] = v
+            # Pydantic v2 emits Optional[X] as {"anyOf": [<X-schema>, {"type": "null"}]}.
+            # The branch merge above copies properties but never the scalar `type` from
+            # branches, so Optional[str]/Optional[int]/etc. lose their type entirely.
+            # Recover it: if the merged result has no `type`, pick the type of the first
+            # non-null branch (ignoring {"type": "null"} sentinels).
+            if "type" not in merged:
+                for branch in resolved_branches:
+                    branch_type = branch.get("type")
+                    if isinstance(branch_type, str) and branch_type != "null":
+                        merged["type"] = branch_type
+                        break
+                    if isinstance(branch_type, list):
+                        # JSON Schema list-form type (e.g. ["string", "null"]):
+                        # recover the first non-null string so downstream never
+                        # sees an unhashable list type.
+                        recovered = next(
+                            (t for t in branch_type if isinstance(t, str) and t != "null"),
+                            None,
+                        )
+                        if recovered is not None:
+                            merged["type"] = recovered
+                            break
             return merged
 
     # Recursively process every dict-valued child of this node.

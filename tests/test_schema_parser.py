@@ -332,3 +332,35 @@ class TestNoFlagCollision:
         }
         result = schema_to_click_options(schema)
         assert len(result) == 2
+
+
+class TestMapTypeOptional:
+    """Pydantic v2 Optional[X] (anyOf-null) and JSON Schema list-form types."""
+
+    def test_optional_string(self):
+        assert _map_type("name", {"anyOf": [{"type": "string"}, {"type": "null"}]}) is click.STRING
+
+    def test_optional_integer(self):
+        assert _map_type("count", {"anyOf": [{"type": "integer"}, {"type": "null"}]}) is click.INT
+
+    def test_optional_boolean(self):
+        assert _map_type("flag", {"anyOf": [{"type": "boolean"}, {"type": "null"}]}) is _BOOLEAN_FLAG
+
+    def test_optional_model_ref_maps_to_string(self):
+        # Optional[Model] -> anyOf[$ref, null]; $ref treated as object -> STRING
+        assert _map_type("cfg", {"anyOf": [{"$ref": "#/$defs/M"}, {"type": "null"}]}) is click.STRING
+
+    def test_optional_string_file_convention(self):
+        # The *_file convention must still apply through an Optional[str].
+        result = _map_type("data_file", {"anyOf": [{"type": "string"}, {"type": "null"}]})
+        assert isinstance(result, click.Path)
+
+    def test_list_form_type_does_not_raise(self):
+        # JSON Schema {"type": ["string", "null"]} must reduce to STRING, not TypeError.
+        assert _map_type("name", {"type": ["string", "null"]}) is click.STRING
+
+    def test_anyof_only_null_falls_back_to_string(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="apcore_cli.schema_parser"):
+            result = _map_type("field", {"anyOf": [{"type": "null"}]})
+        assert result is click.STRING
+        assert "No type specified" in caplog.text

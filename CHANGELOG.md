@@ -5,6 +5,18 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-07-07
+
+Patch release: fixes Pydantic v2 `Optional[...]` field type mapping and bumps the required `apcore-toolkit` floor. All 798 tests pass (5 xfailed).
+
+### Fixed
+
+- **`Optional[X]` fields mapped to the wrong Click type.** Pydantic v2 emits `Optional[X]` as `{"anyOf": [<X>, {"type": "null"}]}` rather than `{"type": "X"}`, so every optional CLI option fell through to `click.STRING` with a spurious "no type specified" warning — `Optional[bool]` lost its flag, `Optional[int]` lost `INT`, and the `*_file` convention stopped applying. `_map_type` (`schema_parser.py`) and the `anyOf`/`oneOf` branch of `_resolve_node` (`ref_resolver.py`) now recover the dominant non-null type from `anyOf`. JSON Schema list-form types (`{"type": ["string", "null"]}`) are likewise reduced to their first non-null string, so they no longer risk an unhashable-key `TypeError` in the type lookup. Regression tests added in `tests/test_schema_parser.py` and `tests/test_ref_resolver.py`.
+
+### Changed
+
+- Bumped the required `apcore-toolkit` floor to `>= 0.10.0` (which centralizes `RegistryWriter` field mapping and adds the shared annotation-preservation conformance verifier — additive, no breaking changes).
+
 ## [0.10.2] - 2026-06-24
 
 ### Changed
