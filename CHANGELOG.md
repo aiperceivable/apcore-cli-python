@@ -5,6 +5,10 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] - 2026-07-14
+
+Patch release. Bumps the required `apcore` floor to `0.26.0` to align the ecosystem on the 0.26.0 governance layer (Execution Policy, governance events, no-handler fail-loud — additive, no breaking changes). No code or API changes; all 798 tests pass (5 xfailed) unmodified against apcore 0.26.0.
+
 ## [0.10.3] - 2026-07-07
 
 Patch release: fixes Pydantic v2 `Optional[...]` field type mapping and bumps the required `apcore-toolkit` floor. All 798 tests pass (5 xfailed).
