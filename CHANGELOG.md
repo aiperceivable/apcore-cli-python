@@ -5,6 +5,20 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.5] - 2026-08-17
+
+Patch release. Bumps the required `apcore` floor to `0.27.0` to track the aligned apcore 0.27.0 release (2026-08-14). **No source changes** — the full test suite passes unchanged (798 passed, 5 xfailed) against apcore 0.27.0.
+
+The apcore 0.26.0 → 0.27.0 delta is BREAKING at the spec level, but touches no surface the CLI consumes — verified against the release notes and the actual call sites:
+
+- **Middleware semantics** — `before_step` failure is now terminal/non-recoverable, `after_step` fires after a recovered step body, `state.outputs` excludes the current step in `after_step`. The CLI never constructs or configures middleware or pipelines; it only calls `executor.call` / `executor.validate` / `call_with_trace` with strategy names. No exposure.
+- **ACL-failed `validate()` introspection** — a failed `acl` check now withholds `module_preflight` / `module_preview` checks and `predicted_changes`. The CLI's `executor.validate()` calls (per-module `--dry-run`, `apcli validate`, and the `system.health.summary` probe) consume only `valid` / `checks` / `requires_approval`; the probe discards its result. Behavior stays correct (ACL-denied calls surface exit 77 as before).
+- **`Registry.register` metadata `dependencies` persistence** — the CLI never calls `register()` directly (module registration is via `discover()` / toolkit `RegistryWriter`); it only reads `len(descriptor.dependencies)` for the `--deps` column. No exposure.
+- **Schema conversion (A23)** — object detection, nullable `anyOf` wrapping, sorted `required` are SDK-conversion rules. The CLI runs its **own** schema→Click converter (`schema_parser.py`) on the descriptor's `input_schema`; it already strips `{"type": "null"}` branches from `anyOf` (v0.10.3) and treats `required` order-insensitively. No exposure.
+- **`pipeline.configure` 4-field set / `requires`/`provides` non-configurable** — the CLI never configures pipelines; a host config carrying other keys now fails at load (spec-mandated strictness, upstream concern).
+- **No type coercion at the module boundary** — CLI flag parsing (Click) produces typed values; only `--input -` JSON passthrough with string-typed numeric values now fails `SCHEMA_VALIDATION_ERROR` instead of being silently coerced (spec-mandated strictness).
+- **Removed/renamed API surface** — Python `apcore.middleware.namespace_keys` removed, `SchemaValidator` default flip, `TraceContext.inject()` raises `InvalidParentIdError` — none used by the CLI.
+
 ## [0.10.4] - 2026-07-14
 
 Patch release. Bumps the required `apcore` floor to `0.26.0` to align the ecosystem on the 0.26.0 governance layer (Execution Policy, governance events, no-handler fail-loud — additive, no breaking changes). No code or API changes; all 798 tests pass (5 xfailed) unmodified against apcore 0.26.0.
