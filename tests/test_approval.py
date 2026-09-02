@@ -331,3 +331,187 @@ def test_validate_module_import_path():
     # Same callable behind both names.
     assert legacy_fp is new_fp
     assert legacy_efc is new_efc
+
+
+class TestApprovalHandlerProtocolResult:
+    """The gate reads the handler's return value by attribute, not by key.
+
+    apcore's ``BuiltinApprovalGate`` does ``result.status`` / ``result.approved_by``,
+    so a plain dict raised ``AttributeError`` inside the gate and reached the
+    caller as ``MODULE_EXECUTE_ERROR`` — every gate-routed approval failed.
+    Rust converts through ``cli_to_apcore_result`` and TypeScript's
+    ``ApprovalResult`` is structurally typed; Python needed the same shape.
+    """
+
+    @pytest.mark.asyncio
+    async def test_request_approval_returns_attribute_addressable_result(self):
+        from apcore_cli.approval import CliApprovalHandler
+
+        handler = CliApprovalHandler(auto_approve=True)
+        result = await handler.request_approval(MagicMock(module_id="m.x", module_def=None))
+
+        assert result.status == "approved"
+        assert result.approved_by == "auto_approve"
+
+    @pytest.mark.asyncio
+    async def test_check_approval_returns_attribute_addressable_result(self):
+        from apcore_cli.approval import CliApprovalHandler
+
+        result = await CliApprovalHandler().check_approval("approval-123")
+
+        assert result.status == "rejected"
+        assert "async approval polling" in result.reason
+
+    @pytest.mark.asyncio
+    async def test_result_is_the_apcore_protocol_type(self):
+        """Not merely duck-typed: the gate's audit path constructs from it."""
+        from apcore.approval import ApprovalResult
+
+        from apcore_cli.approval import CliApprovalHandler
+
+        result = await CliApprovalHandler(auto_approve=True).request_approval(
+            MagicMock(module_id="m.x", module_def=None)
+        )
+        assert isinstance(result, ApprovalResult)
+
+
+class TestApprovalGateEndToEnd:
+    """The handler must survive a real trip through apcore's approval gate."""
+
+    def _app_with_handler(self, auto_approve=True):
+        """Build an app with the CLI handler wired to the executor.
+
+        ``auto_approve`` selects the handler's disposition: True answers
+        "approved", False falls through to the TTY prompt, which under pytest
+        has no terminal and therefore rejects. The rejecting variant is what
+        makes these tests discriminating — a call that merely succeeds proves
+        nothing, since a gate that never fired would also let it through.
+        """
+        from apcore import APCore
+
+        from apcore_cli.approval import CliApprovalHandler
+
+        app = APCore()
+
+        @app.module(id="danger.wipe", annotations={"requires_approval": True})
+        def wipe() -> dict:
+            return {"wiped": True}
+
+        @app.module(id="git.push", annotations={"requires_approval": False})
+        def git_push(remote: str = "origin", force: bool = False) -> dict:
+            return {"pushed": True, "force": force}
+
+        app.executor.set_approval_handler(CliApprovalHandler(auto_approve=auto_approve))
+        return app
+
+    def test_annotation_sourced_approval_executes(self):
+        app = self._app_with_handler()
+        assert app.executor.call("danger.wipe", {}) == {"wiped": True}
+
+    def test_acl_sourced_approval_executes(self):
+        """apcore >= 0.28.0 (spec v1.28.0 §6.1.6-§6.1.8): an ACL rule may require
+        a human for a call whose module annotation says ``requires_approval: false``.
+        The gate then fires on a module the CLI's own pre-check skips."""
+        from apcore.acl import ACL, ACLRule
+
+        app = self._app_with_handler()
+        app.executor.set_acl(
+            ACL(
+                rules=[
+                    ACLRule(
+                        callers=["*"],
+                        targets=["git.push"],
+                        effect="allow",
+                        approval="required",
+                        conditions={"arguments": {"has_key": ["force"]}},
+                    ),
+                    ACLRule(callers=["*"], targets=["*"], effect="allow"),
+                ],
+                default_effect="deny",
+            )
+        )
+
+        # Ungated call: the arguments condition is unsatisfied, no human needed.
+        assert app.executor.call("git.push", {"remote": "origin"}) == {
+            "pushed": True,
+            "force": False,
+        }
+        # Gated call: the ACL requires approval, the CLI handler answers it.
+        assert app.executor.call("git.push", {"remote": "origin", "force": True}) == {
+            "pushed": True,
+            "force": True,
+        }
+
+    def test_preflight_reports_the_acl_sourced_requirement(self):
+        """§7.9.5: ``validate()`` reports the governance-effective requirement,
+        which is what ``apcli validate`` forwards as ``requires_approval``."""
+        from apcore.acl import ACL, ACLRule
+
+        app = self._app_with_handler()
+        app.executor.set_acl(
+            ACL(
+                rules=[
+                    ACLRule(
+                        callers=["*"],
+                        targets=["git.push"],
+                        effect="allow",
+                        approval="required",
+                        conditions={"arguments": {"has_key": ["force"]}},
+                    ),
+                    ACLRule(callers=["*"], targets=["*"], effect="allow"),
+                ],
+                default_effect="deny",
+            )
+        )
+
+        assert app.executor.validate("git.push", {"remote": "origin"}).requires_approval is False
+        assert app.executor.validate("git.push", {"remote": "origin", "force": True}).requires_approval is True
+
+    def _acl_with_argument_scoped_rule(self):
+        from apcore.acl import ACL, ACLRule
+
+        return ACL(
+            rules=[
+                ACLRule(
+                    callers=["*"],
+                    targets=["git.push"],
+                    effect="allow",
+                    approval="required",
+                    conditions={"arguments": {"has_key": ["force"]}},
+                ),
+                ACLRule(callers=["*"], targets=["*"], effect="allow"),
+            ],
+            default_effect="deny",
+        )
+
+    def test_a_refusing_handler_blocks_only_the_acl_matched_call(self):
+        """The discriminating pair.
+
+        With auto-approve off and no TTY under pytest, ``CliApprovalHandler``
+        answers "rejected". If the gate did not fire — or fired but never
+        reached this handler — both calls would succeed and the assertion
+        below could not tell the difference.
+        """
+        from apcore.errors import ApprovalDeniedError
+
+        app = self._app_with_handler(auto_approve=False)
+        app.executor.set_acl(self._acl_with_argument_scoped_rule())
+
+        # No `force` key: the rule does not match, the handler is never asked.
+        assert app.executor.call("git.push", {"remote": "origin"}) == {
+            "pushed": True,
+            "force": False,
+        }
+
+        # `force` present: the ACL requires a human and the handler refused.
+        with pytest.raises(ApprovalDeniedError):
+            app.executor.call("git.push", {"remote": "origin", "force": True})
+
+    def test_a_refusing_handler_blocks_an_annotation_gated_module(self):
+        """Same discrimination for the pre-0.28.0 source of the requirement."""
+        from apcore.errors import ApprovalDeniedError
+
+        app = self._app_with_handler(auto_approve=False)
+
+        with pytest.raises(ApprovalDeniedError):
+            app.executor.call("danger.wipe", {})

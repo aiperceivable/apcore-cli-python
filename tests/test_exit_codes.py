@@ -56,3 +56,64 @@ def test_exit_codes_dict_contains_known_mappings() -> None:
     # Approval pairs share exit code 46 per protocol spec.
     assert EXIT_APPROVAL_DENIED == 46
     assert EXIT_APPROVAL_TIMEOUT == 46
+
+
+class TestApcoreWireCodeFallback:
+    """apcore signals failure with ``ModuleError`` subclasses carrying ``code``.
+
+    None of the CLI's own exception classes match one, so before the wire-code
+    fallback every apcore failure collapsed to exit 1 — including on the
+    ``apcli`` system commands, whose ``_exit_on_system_error`` documents the
+    canonical taxonomy. TS ``exitCodeForError`` and Rust
+    ``map_apcore_error_to_exit_code`` both map by code; Python did not.
+    """
+
+    def test_schema_validation_error_from_apcore_maps_to_45(self) -> None:
+        from apcore.errors import SchemaValidationError as ApcoreSchemaValidationError
+
+        assert exit_code_for_error(ApcoreSchemaValidationError("bad input")) == 45
+
+    def test_module_not_found_from_apcore_maps_to_44(self) -> None:
+        from apcore.errors import ModuleNotFoundError as ApcoreModuleNotFoundError
+
+        assert exit_code_for_error(ApcoreModuleNotFoundError("missing")) == 44
+
+    def test_dependency_codes_map_to_44(self) -> None:
+        """Cross-SDK parity: all three CLIs map both dependency failures to 44.
+
+        apcore-cli-rust reached its catch-all arm for these and exited 1 until
+        the same release; pinned here so the three maps cannot drift again.
+        """
+        assert exit_code_for_error(_wire("DEPENDENCY_NOT_FOUND")) == 44
+        assert exit_code_for_error(_wire("DEPENDENCY_VERSION_MISMATCH")) == 44
+
+    def test_unknown_wire_code_still_falls_back_to_one(self) -> None:
+        class UnmappedError(Exception):
+            code = "SOMETHING_UNMAPPED"
+
+        assert exit_code_for_error(UnmappedError()) == EXIT_MODULE_EXECUTE_ERROR
+
+    def test_non_string_code_attribute_is_ignored(self) -> None:
+        class UnmappedError(Exception):
+            code = 42
+
+        assert exit_code_for_error(UnmappedError()) == EXIT_MODULE_EXECUTE_ERROR
+
+    def test_cli_error_code_map_is_the_shared_map(self) -> None:
+        """Two copies of a value set are two things that drift — cli.py's
+        ``_ERROR_CODE_MAP`` and the fallback must be the same object."""
+        from apcore_cli.cli import _ERROR_CODE_MAP
+        from apcore_cli.exit_codes import APCORE_ERROR_CODE_MAP
+
+        assert _ERROR_CODE_MAP is APCORE_ERROR_CODE_MAP
+
+
+def _wire(code: str) -> Exception:
+    """Build a stand-in for an apcore error carrying `code`."""
+
+    class _ApcoreLikeError(Exception):
+        pass
+
+    err = _ApcoreLikeError(code)
+    err.code = code
+    return err

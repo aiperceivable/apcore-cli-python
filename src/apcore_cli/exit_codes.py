@@ -61,14 +61,61 @@ EXIT_CODES: dict[type[BaseException], int] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Map: apcore wire error code -> exit code
+# ---------------------------------------------------------------------------
+# The CLI's own exception classes (above) never match an error raised by the
+# apcore runtime, which signals failure through ``ModuleError`` subclasses
+# carrying a ``code`` attribute. Matching on that code is what keeps the
+# canonical taxonomy (44 / 45 / 46 / 47 / 77) intact for every dispatch path —
+# ``apcli`` system commands included, which route apcore errors straight to
+# :func:`exit_code_for_error`. Mirrors the ``codeMap`` in TS ``exitCodeForError``
+# and Rust ``cli::map_apcore_error_to_exit_code``.
+APCORE_ERROR_CODE_MAP: dict[str, int] = {
+    "MODULE_NOT_FOUND": EXIT_MODULE_NOT_FOUND,
+    "MODULE_LOAD_ERROR": EXIT_MODULE_LOAD_ERROR,
+    "MODULE_DISABLED": EXIT_MODULE_DISABLED,
+    "DEPENDENCY_NOT_FOUND": EXIT_DEPENDENCY_NOT_FOUND,
+    "DEPENDENCY_VERSION_MISMATCH": EXIT_DEPENDENCY_VERSION_MISMATCH,
+    "SCHEMA_VALIDATION_ERROR": EXIT_SCHEMA_VALIDATION_ERROR,
+    "SCHEMA_CIRCULAR_REF": EXIT_SCHEMA_CIRCULAR_REF,
+    "APPROVAL_DENIED": EXIT_APPROVAL_DENIED,
+    "APPROVAL_TIMEOUT": EXIT_APPROVAL_TIMEOUT,
+    "APPROVAL_PENDING": EXIT_APPROVAL_DENIED,
+    "CONFIG_NOT_FOUND": EXIT_CONFIG_NOT_FOUND,
+    "CONFIG_INVALID": EXIT_CONFIG_INVALID,
+    "MODULE_EXECUTE_ERROR": EXIT_MODULE_EXECUTE_ERROR,
+    "MODULE_TIMEOUT": EXIT_MODULE_TIMEOUT,
+    "ACL_DENIED": EXIT_ACL_DENIED,
+    # Config Bus errors (apcore >= 0.15.0)
+    "CONFIG_NAMESPACE_RESERVED": EXIT_CONFIG_NAMESPACE_RESERVED,
+    "CONFIG_NAMESPACE_DUPLICATE": EXIT_CONFIG_NAMESPACE_DUPLICATE,
+    "CONFIG_ENV_PREFIX_CONFLICT": EXIT_CONFIG_NAMESPACE_DUPLICATE,
+    "CONFIG_ENV_MAP_CONFLICT": EXIT_CONFIG_NAMESPACE_DUPLICATE,
+    "CONFIG_MOUNT_ERROR": EXIT_CONFIG_MOUNT_ERROR,
+    "CONFIG_BIND_ERROR": EXIT_CONFIG_BIND_ERROR,
+    "ERROR_FORMATTER_DUPLICATE": EXIT_ERROR_FORMATTER_DUPLICATE,
+}
+
+
 def exit_code_for_error(err: BaseException) -> int:
     """Return the configured exit code for an error instance.
 
-    Falls back to ``1`` (generic execute error) when no entry in
-    :data:`EXIT_CODES` matches. Mirrors TS ``exitCodeForError`` and the
-    Rust ``ExitCode::from`` mapping.
+    Resolves in two steps, matching TS ``exitCodeForError`` and the Rust
+    ``ExitCode::from`` mapping: first the CLI's own exception classes
+    (:data:`EXIT_CODES`), then the apcore wire code the error carries
+    (:data:`APCORE_ERROR_CODE_MAP`). Falls back to ``1`` (generic execute
+    error) when neither matches.
     """
     for cls, code in EXIT_CODES.items():
         if isinstance(err, cls):
             return code
+
+    # Fall back to the apcore wire code. None of the classes above match an
+    # error raised by the apcore runtime, so without this every apcore failure
+    # would collapse to 1 — losing the taxonomy that scripted callers read.
+    wire_code = getattr(err, "code", None)
+    wire_code = getattr(wire_code, "value", wire_code)
+    if isinstance(wire_code, str) and wire_code in APCORE_ERROR_CODE_MAP:
+        return APCORE_ERROR_CODE_MAP[wire_code]
     return 1

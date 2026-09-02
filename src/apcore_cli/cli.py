@@ -16,7 +16,11 @@ import jsonschema
 from apcore_cli.approval import check_approval
 from apcore_cli.builtin_group import RESERVED_GROUP_NAMES as RESERVED_GROUP_NAMES  # noqa: PLC0414
 from apcore_cli.display_helpers import get_display as _get_display
-from apcore_cli.exit_codes import EXIT_SCHEMA_CIRCULAR_REF, EXIT_SCHEMA_VALIDATION_ERROR
+from apcore_cli.exit_codes import (
+    APCORE_ERROR_CODE_MAP,
+    EXIT_SCHEMA_CIRCULAR_REF,
+    EXIT_SCHEMA_VALIDATION_ERROR,
+)
 from apcore_cli.output import format_exec_result
 from apcore_cli.ref_resolver import (
     CircularRefError,
@@ -428,30 +432,10 @@ class GroupedModuleGroup(LazyModuleGroup):
         )
 
 
-# Error code mapping from apcore error codes to CLI exit codes
-_ERROR_CODE_MAP = {
-    "MODULE_NOT_FOUND": 44,
-    "MODULE_LOAD_ERROR": 44,
-    "MODULE_DISABLED": 44,
-    "SCHEMA_VALIDATION_ERROR": 45,
-    "SCHEMA_CIRCULAR_REF": 48,
-    "APPROVAL_DENIED": 46,
-    "APPROVAL_TIMEOUT": 46,
-    "APPROVAL_PENDING": 46,
-    "CONFIG_NOT_FOUND": 47,
-    "CONFIG_INVALID": 47,
-    "MODULE_EXECUTE_ERROR": 1,
-    "MODULE_TIMEOUT": 1,
-    "ACL_DENIED": 77,
-    # Config Bus errors (apcore >= 0.15.0)
-    "CONFIG_NAMESPACE_RESERVED": 78,
-    "CONFIG_NAMESPACE_DUPLICATE": 78,
-    "CONFIG_ENV_PREFIX_CONFLICT": 78,
-    "CONFIG_ENV_MAP_CONFLICT": 78,
-    "CONFIG_MOUNT_ERROR": 66,
-    "CONFIG_BIND_ERROR": 65,
-    "ERROR_FORMATTER_DUPLICATE": 70,
-}
+# Error code mapping from apcore error codes to CLI exit codes. Single source
+# of truth lives in exit_codes so the dispatch paths that map by wire code and
+# exit_code_for_error cannot drift apart.
+_ERROR_CODE_MAP = APCORE_ERROR_CODE_MAP
 
 
 # D9-005: format_preflight_result and _first_failed_exit_code moved to

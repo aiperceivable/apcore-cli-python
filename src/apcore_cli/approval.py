@@ -71,6 +71,30 @@ def _read_timeout_from_env() -> int | None:
     return parsed
 
 
+def _approval_result(status: str, approved_by: str | None = None, reason: str | None = None) -> Any:
+    """Build the apcore-protocol ``ApprovalResult`` the executor's gate expects.
+
+    The approval gate reads the handler's return value by attribute
+    (``result.status`` in apcore ``builtin_steps``), so a plain mapping raises
+    ``AttributeError`` inside the gate and surfaces to the caller as
+    ``MODULE_EXECUTE_ERROR``. Mirrors the Rust adapter's ``cli_to_apcore_result``
+    and TypeScript's structurally-typed ``ApprovalResult`` object.
+
+    Falls back to the mapping shape when apcore is not importable so the handler
+    stays usable in isolation (unit tests that stub the runtime out).
+    """
+    payload: dict[str, Any] = {"status": status}
+    if approved_by is not None:
+        payload["approved_by"] = approved_by
+    if reason is not None:
+        payload["reason"] = reason
+    try:
+        from apcore.approval import ApprovalResult
+    except ImportError:
+        return payload
+    return ApprovalResult(**payload)
+
+
 # ---------------------------------------------------------------------------
 # CliApprovalHandler — implements apcore ApprovalHandler protocol (FE-11 §3.5)
 # ---------------------------------------------------------------------------
@@ -109,25 +133,25 @@ class CliApprovalHandler:
         # (`if !get_requires_approval(module_def) { return Approved::not_required }`).
         requires_attr = getattr(request, "requires_approval", None)
         if requires_attr is False:
-            return {"status": "approved", "approved_by": "not_required"}
+            return _approval_result("approved", approved_by="not_required")
         module_def = getattr(request, "module_def", None)
         if module_def is not None:
             annotations = getattr(module_def, "annotations", None)
             if annotations is not None:
                 requires = _get_annotation(annotations, "requires_approval", None)
                 if requires is False:
-                    return {"status": "approved", "approved_by": "not_required"}
+                    return _approval_result("approved", approved_by="not_required")
 
         # Bypass: auto_approve flag
         if self.auto_approve:
             logger.info("Approval bypassed via --yes flag for module '%s'.", module_id)
-            return {"status": "approved", "approved_by": "auto_approve"}
+            return _approval_result("approved", approved_by="auto_approve")
 
         # Bypass: APCORE_CLI_AUTO_APPROVE env var
         env_val = os.environ.get("APCORE_CLI_AUTO_APPROVE", "")
         if env_val == "1":
             logger.info("Approval bypassed via APCORE_CLI_AUTO_APPROVE for '%s'.", module_id)
-            return {"status": "approved", "approved_by": "env_auto_approve"}
+            return _approval_result("approved", approved_by="env_auto_approve")
         if env_val != "" and env_val != "1":
             # D10-009 cross-SDK parity: emit to stderr (matching TS) so log
             # capture / handler config does not mask the warning. Spec at
@@ -140,10 +164,7 @@ class CliApprovalHandler:
 
         # Non-TTY: reject
         if not sys.stdin.isatty():
-            return {
-                "status": "rejected",
-                "reason": "Non-interactive session without --yes",
-            }
+            return _approval_result("rejected", reason="Non-interactive session without --yes")
 
         # TTY prompt
         annotations = getattr(request, "annotations", None) or {}
@@ -154,21 +175,18 @@ class CliApprovalHandler:
         try:
             approved = _tty_prompt(module_id, self.timeout)
         except ApprovalTimeoutError:
-            return {"status": "timeout", "reason": f"Timed out after {self.timeout}s"}
+            return _approval_result("timeout", reason=f"Timed out after {self.timeout}s")
 
         if approved:
-            return {"status": "approved", "approved_by": "tty_user"}
-        return {"status": "rejected", "reason": "User rejected"}
+            return _approval_result("approved", approved_by="tty_user")
+        return _approval_result("rejected", reason="User rejected")
 
     async def check_approval(self, approval_id: str) -> Any:
         """Check status of a previously pending approval (Phase B).
 
         CLI does not support async approval polling; always returns rejected.
         """
-        return {
-            "status": "rejected",
-            "reason": "CLI does not support async approval polling",
-        }
+        return _approval_result("rejected", reason="CLI does not support async approval polling")
 
 
 # ---------------------------------------------------------------------------

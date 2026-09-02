@@ -101,8 +101,15 @@ def _format_health_summary_tty(result: dict[str, Any]) -> None:
         rate = f"{m.get('error_rate', 0) * 100:.1f}%"
         click.echo(f"  {m['module_id']:<28} {m['status']:<12} {rate:<12} {top_str}")
 
+    # The health tiers are healthy / degraded / error / unknown — four, not
+    # three. `unknown` means "no calls recorded yet", which is the state every
+    # module in a fresh project is in, so omitting it made the summary line
+    # contradict the table right above it: the rows listed modules while the
+    # total read "no data". apcore >= 0.28.0 declares the four-tier set
+    # canonically in sys-health-summary.schema.json (§6.6); the SDKs have
+    # emitted `unknown` all along.
     parts = []
-    for key in ("healthy", "degraded", "error"):
+    for key in ("healthy", "degraded", "error", "unknown"):
         count = summary.get(key, 0)
         if count:
             parts.append(f"{count} {key}")

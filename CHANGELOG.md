@@ -5,6 +5,49 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-09-02
+
+Bumps the required `apcore` floor to `0.28.0` and `apcore-toolkit` to `0.10.2`, and fixes **three defects the 0.28.0 upgrade made reachable or visible**. Full suite: 815 passed, 5 xfailed (798 → 815; 17 new regression tests). Each new test was confirmed to fail against the pre-fix behaviour rather than merely to pass against the new one.
+
+**Why a minor rather than a patch.** Every fix below restores behaviour that was already specified, but two of them change what a working consumer observes, and this ecosystem's rule — stated in apcore's own 0.28.0 release note — is that such a change "must ship as a **minor** (or major) version bump, never a patch". A script branching on exit code `1` from an `apcli` system command now sees `45`; a caller doing `handler.request_approval(...)["status"]` now gets a `TypeError`. Neither was correct behaviour, and both were reachable.
+
+### Fixed
+
+- **The `apcli health` summary line reported "no data" for a project whose modules it had just listed.** apcore classifies module health in **four** tiers — `healthy` / `degraded` / `error` / `unknown` — and the tally iterated only the first three. `unknown` means "no calls recorded yet", which is the state every module in a fresh project is in, so the common case rendered a populated table above a total that denied it:
+
+  ```
+    probe.echo                   unknown      0.0%         --
+  Summary: no data
+  ```
+
+  **Pre-existing, and not introduced by this upgrade** — all three SDKs have emitted `unknown` since the tier set existed. apcore 0.28.0 is what brought it into focus: `sys-health-summary.schema.json` had declared the enum as `["healthy", "degraded", "unhealthy"]`, a value **no SDK emits**, and the release corrects it to the four tiers actually produced, splitting the summary's `unhealthy` count field into `error` and `unknown`. With the canonical shape finally naming four tiers, rendering three is a plain omission. Fixed in all three SDKs together, with the tally now covering `unknown`; a genuinely empty tally still reads "no data".
+
+- **The approval gate crashed on every gate-routed approval — `CliApprovalHandler` returned a mapping where the protocol requires an `ApprovalResult`.** apcore's `BuiltinApprovalGate` reads the handler's answer by attribute (`result.status`, `result.approved_by` in `builtin_steps.py`), so the handler's `{"status": "approved", ...}` dict raised `AttributeError` *inside* the gate and reached the caller as `MODULE_EXECUTE_ERROR`. Every one of the eight return paths was affected, so a module annotated `requires_approval: true` could not execute through the wired handler at all — including the `--yes` and `APCORE_CLI_AUTO_APPROVE=1` bypasses, which return early and therefore failed the same way.
+
+  It survived because nothing exercised it: no test in this SDK called `request_approval`, and the class was only reachable through `executor.set_approval_handler` in `factory.py`. apcore-cli-rust converts through `cli_to_apcore_result` and apcore-cli-typescript's `ApprovalResult` is a structurally-typed interface, so neither had the defect — this was a Python-only divergence from a shape both other SDKs got right.
+
+  **Pre-existing, but apcore 0.28.0 widens the blast radius.** Before 0.28.0 the gate fired only for a module whose *annotation* said `requires_approval: true`. Since spec v1.28.0 §6.9 the gate fires on the union of three sources, so an ACL rule carrying `approval: required` (§6.1.6) now routes calls to modules annotated `requires_approval: false` through the same broken path — the exact shape argument-scoped approval was added for (`git push --force` needs a human, `git push` does not).
+
+  `_approval_result()` now constructs `apcore.approval.ApprovalResult`, falling back to the mapping shape when apcore is not importable so the handler stays usable in isolation.
+
+- **Every apcore error from an `apcli` system command exited 1 instead of its canonical code.** `exit_code_for_error` matched only on the CLI's own exception classes, none of which an apcore-raised `ModuleError` subclass is an instance of, so the wire code it carries was never read. `system_cmd._exit_on_system_error` documents the canonical taxonomy (44 module-not-found, 45 schema-validation, 46 approval-denied, 47 config-invalid, 77 ACL-denied) and delivered `1` for all of them. TS `exitCodeForError` falls through to a `codeMap` and Rust `map_module_error_to_exit_code` reads `err.code`; Python had the map — in `cli.py` — and never consulted it from this path.
+
+  **apcore 0.28.0 makes it newly reachable on a routine command.** `system.usage.summary` / `system.usage.module` now declare `"pattern": "^[1-9][0-9]*[hd]$"` on `period`, and 0.28.0 also stops `_DictSchemaAdapter.model_validate` being a pass-through, so dict-declared schemas are finally enforced. `apcore-cli apcli usage --period 0h` passes the flag through verbatim and now raises `SCHEMA_VALIDATION_ERROR` where it previously returned an empty window with exit 0 — and was reported as exit 1 rather than 45.
+
+  `APCORE_ERROR_CODE_MAP` moves to `exit_codes.py` as the single source of truth (`cli._ERROR_CODE_MAP` is now an alias, so the two copies cannot drift), gains the `DEPENDENCY_NOT_FOUND` / `DEPENDENCY_VERSION_MISMATCH` entries TS already had, and `exit_code_for_error` falls back to it.
+
+### Changed
+
+- **`apcore>=0.28.0`, `apcore-toolkit>=0.10.2`.** apcore-toolkit 0.10.2 is a dependency-tracking release with no source change; its stable surface consumed by the CLI (`format_*`, `DisplayResolver`, `BindingLoader`, `RegistryWriter`) is unchanged.
+
+- **Exit-code map parity pinned across the three SDKs.** A mechanical three-way diff of the maps found `DEPENDENCY_NOT_FOUND` and `DEPENDENCY_VERSION_MISMATCH` mapped to 44 here and in the other non-Rust SDK, but falling through to 1 in apcore-cli-rust (fixed in its 0.11.0). Both codes now carry an explicit assertion here too, so the three maps cannot drift again without a test going red.
+
+### Notes
+
+- **What the 0.27.0 → 0.28.0 delta does *not* touch.** The CLI never constructs or loads an `ACL`, never calls `check()` / `check_access()` (so §6.8.1's fail-closed legacy boolean does not reach it), never reads an `AuditEntry`, and never builds an `ACLRule` (so §6.1.5's `effect` value closure and the new `approval` field are inert here). `ExecutionPolicy.resolve()`'s new keyword-only call-site parameters are additive and the CLI configures no policy. `p99_latency_ms` changing value is display-only in `_format_usage_summary_tty`.
+- **`Executor.validate()` now reports the governance-effective requirement (§7.9.5), which is an improvement the CLI gets for free.** `apcli validate` and the `--dry-run` path forward `result.requires_approval` verbatim, so a call gated only by an ACL argument-scoped rule is now correctly reported as needing approval. Pinned by `test_preflight_reports_the_acl_sourced_requirement`.
+- **The CLI's own pre-execution `check_approval(module_def, ...)` still reads the static annotation**, which since spec v1.29.0 no longer means "no consent needed". That is correct here rather than a defect: the pre-check is an ergonomic early prompt, and a call it skips still meets the executor's gate, which now composes all three sources and routes to the same `CliApprovalHandler`. Verified end-to-end by `TestApprovalGateEndToEnd`.
+
 ## [0.10.5] - 2026-08-17
 
 Patch release. Bumps the required `apcore` floor to `0.27.0` to track the aligned apcore 0.27.0 release (2026-08-14). **No source changes** — the full test suite passes unchanged (798 passed, 5 xfailed) against apcore 0.27.0.

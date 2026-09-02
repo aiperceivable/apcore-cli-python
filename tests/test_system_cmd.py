@@ -460,3 +460,58 @@ def test_system_cmd_has_register_system_commands():
 
 # Ensure pytest plugin doesn't complain about unused imports.
 _ = pytest
+
+
+class TestHealthSummaryFourTiers:
+    """The health summary line must cover all four tiers, not three.
+
+    apcore classifies modules as healthy / degraded / error / **unknown**, and
+    `unknown` ("no calls recorded yet") is the state every module in a fresh
+    project is in. Iterating only the first three made the summary line
+    contradict the table printed directly above it — the rows listed modules
+    while the total read "no data". apcore >= 0.28.0 declares the four-tier set
+    canonically in `sys-health-summary.schema.json`; the SDKs emitted `unknown`
+    all along, so this was a long-standing reporting hole the schema
+    correction brought into focus.
+    """
+
+    def _payload(self, summary):
+        return {
+            "summary": summary,
+            "modules": [{"module_id": "probe.echo", "status": "unknown", "error_rate": 0.0, "top_error": None}],
+        }
+
+    def test_unknown_only_project_is_not_reported_as_no_data(self, capsys):
+        from apcore_cli.system_cmd import _format_health_summary_tty
+
+        _format_health_summary_tty(
+            self._payload({"total_modules": 1, "healthy": 0, "degraded": 0, "error": 0, "unknown": 1})
+        )
+        out = capsys.readouterr().out
+
+        assert "Summary: 1 unknown" in out
+        assert "no data" not in out, (
+            "a project whose modules are all unaccounted-for must not report "
+            "'no data' while the table above lists them"
+        )
+
+    def test_all_four_tiers_are_reported(self, capsys):
+        from apcore_cli.system_cmd import _format_health_summary_tty
+
+        _format_health_summary_tty(
+            self._payload({"total_modules": 10, "healthy": 4, "degraded": 3, "error": 2, "unknown": 1})
+        )
+        out = capsys.readouterr().out
+
+        assert "4 healthy" in out
+        assert "3 degraded" in out
+        assert "2 error" in out
+        assert "1 unknown" in out
+
+    def test_genuinely_empty_summary_still_reports_no_data(self, capsys):
+        from apcore_cli.system_cmd import _format_health_summary_tty
+
+        _format_health_summary_tty(
+            self._payload({"total_modules": 0, "healthy": 0, "degraded": 0, "error": 0, "unknown": 0})
+        )
+        assert "no data" in capsys.readouterr().out
