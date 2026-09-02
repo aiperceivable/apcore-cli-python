@@ -1,5 +1,6 @@
 """Tests for Approval Gate (FE-03)."""
 
+import asyncio
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -343,34 +344,37 @@ class TestApprovalHandlerProtocolResult:
     ``ApprovalResult`` is structurally typed; Python needed the same shape.
     """
 
-    @pytest.mark.asyncio
-    async def test_request_approval_returns_attribute_addressable_result(self):
+    # These drive the coroutine with `asyncio.run` rather than `async def` +
+    # `@pytest.mark.asyncio`: this suite declares no async plugin (there are no
+    # other async tests in it), so a marker-based test is silently collected and
+    # then fails at run time with "async def functions are not natively
+    # supported" wherever pytest-asyncio is not installed.
+
+    def test_request_approval_returns_attribute_addressable_result(self):
         from apcore_cli.approval import CliApprovalHandler
 
         handler = CliApprovalHandler(auto_approve=True)
-        result = await handler.request_approval(MagicMock(module_id="m.x", module_def=None))
+        result = asyncio.run(handler.request_approval(MagicMock(module_id="m.x", module_def=None)))
 
         assert result.status == "approved"
         assert result.approved_by == "auto_approve"
 
-    @pytest.mark.asyncio
-    async def test_check_approval_returns_attribute_addressable_result(self):
+    def test_check_approval_returns_attribute_addressable_result(self):
         from apcore_cli.approval import CliApprovalHandler
 
-        result = await CliApprovalHandler().check_approval("approval-123")
+        result = asyncio.run(CliApprovalHandler().check_approval("approval-123"))
 
         assert result.status == "rejected"
         assert "async approval polling" in result.reason
 
-    @pytest.mark.asyncio
-    async def test_result_is_the_apcore_protocol_type(self):
+    def test_result_is_the_apcore_protocol_type(self):
         """Not merely duck-typed: the gate's audit path constructs from it."""
         from apcore.approval import ApprovalResult
 
         from apcore_cli.approval import CliApprovalHandler
 
-        result = await CliApprovalHandler(auto_approve=True).request_approval(
-            MagicMock(module_id="m.x", module_def=None)
+        result = asyncio.run(
+            CliApprovalHandler(auto_approve=True).request_approval(MagicMock(module_id="m.x", module_def=None))
         )
         assert isinstance(result, ApprovalResult)
 

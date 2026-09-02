@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.11.0] - 2026-09-02
 
-Bumps the required `apcore` floor to `0.28.0` and `apcore-toolkit` to `0.10.2`, and fixes **three defects the 0.28.0 upgrade made reachable or visible**. Full suite: 815 passed, 5 xfailed (798 → 815; 17 new regression tests). Each new test was confirmed to fail against the pre-fix behaviour rather than merely to pass against the new one.
+Bumps the required `apcore` floor to `0.28.0` and `apcore-toolkit` to `0.10.2`, and fixes **three defects the 0.28.0 upgrade made reachable or visible**. Full suite: 815 passed, 5 xfailed (798 → 815; 17 new regression tests), verified in a throwaway venv built from the declared `dev` extra rather than the working interpreter. Each new test was confirmed to fail against the pre-fix behaviour rather than merely to pass against the new one.
 
 **Why a minor rather than a patch.** Every fix below restores behaviour that was already specified, but two of them change what a working consumer observes, and this ecosystem's rule — stated in apcore's own 0.28.0 release note — is that such a change "must ship as a **minor** (or major) version bump, never a patch". A script branching on exit code `1` from an `apcli` system command now sees `45`; a caller doing `handler.request_approval(...)["status"]` now gets a `TypeError`. Neither was correct behaviour, and both were reachable.
 
@@ -41,6 +41,8 @@ Bumps the required `apcore` floor to `0.28.0` and `apcore-toolkit` to `0.10.2`, 
 - **`apcore>=0.28.0`, `apcore-toolkit>=0.10.2`.** apcore-toolkit 0.10.2 is a dependency-tracking release with no source change; its stable surface consumed by the CLI (`format_*`, `DisplayResolver`, `BindingLoader`, `RegistryWriter`) is unchanged.
 
 - **Exit-code map parity pinned across the three SDKs.** A mechanical three-way diff of the maps found `DEPENDENCY_NOT_FOUND` and `DEPENDENCY_VERSION_MISMATCH` mapped to 44 here and in the other non-Rust SDK, but falling through to 1 in apcore-cli-rust (fixed in its 0.11.0). Both codes now carry an explicit assertion here too, so the three maps cannot drift again without a test going red.
+
+- **The new handler tests drive their coroutines with `asyncio.run` instead of `@pytest.mark.asyncio`.** This suite declares no async plugin — `pytest-asyncio` is absent from the `dev` extra and there is not one other async test in it — so a marker-based test is collected happily and then fails at run time with *"async def functions are not natively supported"* on any machine that does not happen to have the plugin installed for other reasons. Caught by CI, not locally, which is the point: the local interpreter had it and the declared dependency set does not.
 
 ### Notes
 
