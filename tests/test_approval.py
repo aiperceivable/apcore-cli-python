@@ -488,34 +488,65 @@ class TestApprovalGateEndToEnd:
             default_effect="deny",
         )
 
-    def test_a_refusing_handler_blocks_only_the_acl_matched_call(self):
-        """The discriminating pair.
+    def test_a_refusing_handler_is_consulted_only_for_the_acl_matched_call(self):
+        """The discriminating case.
 
-        With auto-approve off and no TTY under pytest, ``CliApprovalHandler``
-        answers "rejected". If the gate did not fire — or fired but never
-        reached this handler — both calls would succeed and the assertion
-        below could not tell the difference.
+        Deliberately uses a stub rather than ``CliApprovalHandler`` with
+        auto-approve off: that handler's refusal depends on stdin not being a
+        terminal, which holds under default pytest capture and stops holding
+        under ``pytest -s``. The stub removes the ambient dependency and lets
+        the test assert the stronger property directly — that the gate
+        *consulted a handler at all*, and for which call.
         """
+        from apcore.approval import ApprovalResult
         from apcore.errors import ApprovalDeniedError
 
-        app = self._app_with_handler(auto_approve=False)
+        seen = []
+
+        class RecordingRefusingHandler:
+            async def request_approval(self, request):
+                seen.append(f"{request.module_id}({','.join(sorted(request.arguments))})")
+                return ApprovalResult(status="rejected", reason="refused by the test handler")
+
+            async def check_approval(self, approval_id):
+                return ApprovalResult(status="rejected")
+
+        app = self._app_with_handler()
         app.executor.set_acl(self._acl_with_argument_scoped_rule())
+        app.executor.set_approval_handler(RecordingRefusingHandler())
 
         # No `force` key: the rule does not match, the handler is never asked.
         assert app.executor.call("git.push", {"remote": "origin"}) == {
             "pushed": True,
             "force": False,
         }
+        assert seen == [], f"the handler must not have been consulted, but saw: {seen}"
 
         # `force` present: the ACL requires a human and the handler refused.
         with pytest.raises(ApprovalDeniedError):
             app.executor.call("git.push", {"remote": "origin", "force": True})
+        assert seen == ["git.push(force,remote)"], (
+            "the gate must have consulted the handler exactly once, for the " f"`force`-carrying call, but saw: {seen}"
+        )
 
     def test_a_refusing_handler_blocks_an_annotation_gated_module(self):
         """Same discrimination for the pre-0.28.0 source of the requirement."""
+        from apcore.approval import ApprovalResult
         from apcore.errors import ApprovalDeniedError
 
-        app = self._app_with_handler(auto_approve=False)
+        seen = []
+
+        class RecordingRefusingHandler:
+            async def request_approval(self, request):
+                seen.append(request.module_id)
+                return ApprovalResult(status="rejected", reason="refused by the test handler")
+
+            async def check_approval(self, approval_id):
+                return ApprovalResult(status="rejected")
+
+        app = self._app_with_handler()
+        app.executor.set_approval_handler(RecordingRefusingHandler())
 
         with pytest.raises(ApprovalDeniedError):
             app.executor.call("danger.wipe", {})
+        assert seen == ["danger.wipe"]
