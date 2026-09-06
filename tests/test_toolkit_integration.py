@@ -298,3 +298,64 @@ class TestBindingPathStandaloneE2E:
         fake_loader.load.assert_called_once()
         # allowed_prefixes propagated end-to-end.
         assert fake_writer.write.call_args.kwargs["allowed_prefixes"] == ["sandbox"]
+
+
+class TestCommandsDirReadmeExampleE2E:
+    """README.md's "Zero-import way" (`--commands-dir`) example, exercised
+    end-to-end with the REAL apcore-toolkit classes — no mocking.
+
+    apcore-toolkit's ``ConventionScanner`` sets ``ScannedModule.target`` to a
+    raw file path (``"commands/deploy.py:deploy"``) rather than a dotted
+    module path. ``RegistryWriter._to_function_module`` resolves ``target``
+    via ``resolve_target()``, which expects ``'module.path:qualname'`` and
+    calls ``importlib.import_module(module_path)`` — raising
+    ``ModuleNotFoundError`` for a path containing ``/`` and ``.py``.
+    ``RegistryWriter.write()`` catches per-module write failures and logs a
+    WARNING rather than crashing, so the net effect is silent: `deploy.deploy`
+    is simply never registered, and running the README's own example --
+    `apcore-cli --commands-dir commands/ deploy deploy --env prod` -- fails
+    with Click's "No such command 'deploy'" (exit 2).
+
+    Confirmed to reproduce against the pinned apcore-toolkit (0.11.1), both
+    via the real ``apcore-cli`` console script in a scratch directory and via
+    this in-process ``CliRunner`` invocation. The root cause lives entirely
+    in apcore-toolkit's ``ConventionScanner`` / ``resolve_target`` — it is not
+    fixable from this repo. Marked ``xfail(strict=True)`` so this is caught
+    automatically the moment apcore-toolkit fixes it (a strict xfail that
+    starts passing fails the suite, prompting someone to un-xfail it).
+    """
+
+    @pytest.mark.xfail(
+        reason=(
+            "apcore-toolkit's ConventionScanner sets ScannedModule.target to a "
+            "raw file path ('commands/deploy.py:deploy') instead of a dotted "
+            "module path; RegistryWriter._to_function_module's resolve_target() "
+            "call then raises ModuleNotFoundError, which RegistryWriter.write() "
+            "logs as a WARNING and swallows -- silently never registering the "
+            "convention-scanned command. Tracked upstream in apcore-toolkit; "
+            "not fixable from apcore-cli-python. See tests/test_toolkit_"
+            "integration.py::TestCommandsDirReadmeExampleE2E."
+        ),
+        strict=True,
+    )
+    def test_commands_dir_convention_module_is_invocable(self, tmp_path):
+        from click.testing import CliRunner
+
+        from apcore_cli.factory import create_cli
+
+        commands_dir = tmp_path / "commands"
+        commands_dir.mkdir()
+        (commands_dir / "deploy.py").write_text(
+            'def deploy(env: str, tag: str = "latest") -> dict:\n'
+            '    """Deploy the app to the given environment."""\n'
+            '    return {"status": "deployed", "env": env}\n',
+            encoding="utf-8",
+        )
+        extensions_dir = tmp_path / "extensions"
+        extensions_dir.mkdir()
+
+        cli = create_cli(extensions_dir=str(extensions_dir), commands_dir=str(commands_dir))
+        result = CliRunner().invoke(cli, ["deploy", "--env", "prod"])
+
+        assert result.exit_code == 0, result.output
+        assert "deployed" in result.output
