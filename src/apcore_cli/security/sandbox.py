@@ -38,7 +38,15 @@ class ModuleNotFoundError(Exception):  # noqa: A001 — intentional shadow of bu
     pass
 
 
-# Deprecated alias kept for backward compat — prefer ModuleNotFoundError. Will be removed in v0.10.0.
+# Deprecated alias kept for backward compat — prefer ModuleNotFoundError.
+# Deprecated since v0.8.0 with a stated removal target of v0.10.0; the
+# package is well past that (see CHANGELOG.md) with no removal in any
+# release since, and `tests/test_approval.py::
+# test_module_not_found_error_exports_with_deprecated_alias` still asserts
+# this alias is exported. Retained for back-compat with no removal date
+# currently planned — removing it is a public-`__all__` breaking change
+# that should be a deliberate decision (with its own CHANGELOG entry and
+# test update), not a side effect of an unrelated fix pass.
 CliModuleNotFoundError = ModuleNotFoundError
 
 
@@ -116,9 +124,45 @@ class Sandbox:
         self._max_output_bytes = max_output_bytes
         return self
 
-    def execute(self, module_id: str, input_data: dict, executor: Executor) -> Any:
+    def execute(
+        self,
+        module_id: str,
+        input_data: dict,
+        executor: Executor,
+        context: Any = None,
+    ) -> Any:
+        """Execute *module_id*, in-process or in an isolated subprocess.
+
+        ``context`` carries the FE-14 identity flags (``--identity-id`` /
+        ``--identity-type`` / ``--role``) into the ACL's conditional rules.
+        It is passed through **only when non-None** so the common no-identity
+        path calls the executor with exactly the arity it always has. Sandboxed
+        execution cannot carry it into the child: the subprocess builds its own
+        context, and an unauthenticated identity assertion is not something to
+        serialize across that boundary — but it *is* used to reach the access
+        decision below, in this process, before anything is spawned.
+
+        **The sandboxed branch is ACL-gated here (§4.10).** The subprocess
+        builds a bare ``Registry`` + ``Executor`` and never sees the attached
+        ACL, so without this gate ``--sandbox`` would be a complete access
+        control bypass — a security flag switching off access control. The
+        refusal happens **before** ``_sandboxed_execute``, so a denied call
+        never spawns a process. Exits ``77``.
+
+        Raises:
+            SystemExit: Exit ``77`` when an attached ACL denies the call.
+        """
         if not self._enabled:
+            if context is not None:
+                return executor.call(module_id, input_data, context)
             return executor.call(module_id, input_data)
+
+        # Gate before spawning. Also covers a downstream embedder calling
+        # `Sandbox` directly rather than through the CLI's dispatch, which is
+        # why it lives here and not only at the call sites.
+        from apcore_cli.acl_loader import enforce_acl_for_unguarded_path
+
+        enforce_acl_for_unguarded_path(module_id, context, arguments=input_data)
         return self._sandboxed_execute(module_id, input_data)
 
     def _sandboxed_execute(self, module_id: str, input_data: dict) -> Any:
