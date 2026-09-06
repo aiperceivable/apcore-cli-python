@@ -280,7 +280,7 @@ def register_enable_command(apcli_group: click.Group, executor: Any) -> None:
                 {"module_id": module_id, "enabled": True, "reason": reason},
             )
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(
                     "system.control.toggle_feature",
@@ -295,7 +295,7 @@ def register_enable_command(apcli_group: click.Group, executor: Any) -> None:
                 click.echo(f"Module '{module_id}' enabled.\n  Reason: {reason}")
         except Exception as e:
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(
                     "system.control.toggle_feature",
@@ -336,7 +336,7 @@ def register_disable_command(apcli_group: click.Group, executor: Any) -> None:
                 {"module_id": module_id, "enabled": False, "reason": reason},
             )
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(
                     "system.control.toggle_feature",
@@ -351,7 +351,7 @@ def register_disable_command(apcli_group: click.Group, executor: Any) -> None:
                 click.echo(f"Module '{module_id}' disabled.\n  Reason: {reason}")
         except Exception as e:
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(
                     "system.control.toggle_feature",
@@ -392,7 +392,7 @@ def register_reload_command(apcli_group: click.Group, executor: Any) -> None:
                 {"module_id": module_id, "reason": reason},
             )
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution("system.control.reload_module", {"module_id": module_id}, "success", 0, duration_ms)
             if fmt == "json" or not sys.stdout.isatty():
@@ -406,7 +406,7 @@ def register_reload_command(apcli_group: click.Group, executor: Any) -> None:
                 click.echo(f"  Duration: {dur}ms")
         except Exception as e:
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(
                     "system.control.reload_module",
@@ -469,7 +469,7 @@ def register_config_command(apcli_group: click.Group, executor: Any) -> None:
                 {"key": key, "value": parsed_value, "reason": reason},
             )
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution("system.control.update_config", {"key": key}, "success", 0, duration_ms)
             if fmt == "json" or not sys.stdout.isatty():
@@ -482,7 +482,7 @@ def register_config_command(apcli_group: click.Group, executor: Any) -> None:
                 click.echo(f"  Reason: {reason}")
         except Exception as e:
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(
                     "system.control.update_config", {"key": key}, "error", exit_code_for_error(e), duration_ms

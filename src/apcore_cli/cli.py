@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 import click
 import jsonschema
 
+from apcore_cli.acl_loader import cli_context as _cli_acl_context
+from apcore_cli.acl_loader import enforce_acl_for_unguarded_path as _enforce_acl_for_unguarded_path
 from apcore_cli.approval import check_approval
 from apcore_cli.builtin_group import RESERVED_GROUP_NAMES as RESERVED_GROUP_NAMES  # noqa: PLC0414
 from apcore_cli.display_helpers import get_display as _get_display
@@ -30,7 +32,16 @@ from apcore_cli.ref_resolver import (
     resolve_refs,
 )
 from apcore_cli.schema_parser import reconvert_enum_values, schema_to_click_options
+
+# Re-exported: get_audit_logger/set_audit_logger live in security.audit (not
+# defined here) so that acl_loader.py — which cli.py imports above — can also
+# read the singleton without importing back from cli, which would make
+# cli -> acl_loader -> cli a real circular import. Kept importable as
+# apcore_cli.cli.set_audit_logger for existing callers (factory.py, __init__.py).
+from apcore_cli.security.audit import get_audit_logger as get_audit_logger  # noqa: PLC0414
+from apcore_cli.security.audit import set_audit_logger as set_audit_logger  # noqa: PLC0414
 from apcore_cli.security.sandbox import Sandbox
+from apcore_cli.strategy import warn_if_acl_bypassed
 
 # FE-13 §11.4: ``BUILTIN_COMMANDS`` was retired in v0.7.0. All apcore-cli-provided
 # commands now live under the single reserved ``apcli`` group, so the only
@@ -43,12 +54,7 @@ if TYPE_CHECKING:
     from apcore import Executor, Registry
     from apcore.registry.types import ModuleDescriptor
 
-    from apcore_cli.security.audit import AuditLogger
-
 logger = logging.getLogger("apcore_cli.cli")
-
-# Module-level audit logger, set during CLI init
-_audit_logger: AuditLogger | None = None
 
 # Module-level all-options help flag, set during CLI init
 _all_options_help: bool = False
@@ -88,12 +94,6 @@ def set_docs_url(url: str | None) -> None:
     """
     global _docs_url
     _docs_url = url
-
-
-def set_audit_logger(audit_logger: AuditLogger | None) -> None:
-    """Set the global audit logger instance. Pass None to clear."""
-    global _audit_logger
-    _audit_logger = audit_logger
 
 
 class _LazyGroup(click.Group):
@@ -595,7 +595,11 @@ def build_module_command(
 
             # -- Dry-run: preflight validation only, no execution --
             if dry_run:
-                preflight = executor.validate(module_id, merged)
+                _acl_ctx = _cli_acl_context()
+                if _acl_ctx is not None:
+                    preflight = executor.validate(module_id, merged, _acl_ctx)
+                else:
+                    preflight = executor.validate(module_id, merged)
                 format_preflight_result(preflight, output_format)
                 # --trace --dry-run: show which pipeline steps would run
                 if trace_flag and hasattr(preflight, "checks"):
@@ -642,8 +646,24 @@ def build_module_command(
             if approval_token:
                 merged["_approval_token"] = approval_token
 
-            # 4. Check approval gate
-            check_approval(module_def, auto_approve, timeout=approval_timeout)
+            # 4. Check approval gate.
+            #
+            # §4.10: `--sandbox` executes in a subprocess that never sees the
+            # attached ACL, so the access decision is reached here, in the
+            # parent, before the spawn — and its `approval: required` is
+            # unioned with the annotation so one rule demands a human on every
+            # path. `Sandbox.execute` re-checks the deny half as a backstop for
+            # direct API callers; `check_access` is a pure query, so asking
+            # twice costs nothing and executes nothing.
+            _acl_approval = False
+            if sandbox_flag:
+                _acl_approval = _enforce_acl_for_unguarded_path(module_id, _cli_acl_context(), arguments=merged)
+            check_approval(
+                module_def,
+                auto_approve,
+                timeout=approval_timeout,
+                acl_requires_approval=_acl_approval,
+            )
 
             # 5. Execute (optionally sandboxed)
 
@@ -682,18 +702,29 @@ def build_module_command(
 
                     asyncio.run(_do_stream())
                     duration_ms = int((time.monotonic() - audit_start) * 1000)
-                    if _audit_logger is not None:
-                        _audit_logger.log_execution(module_id, merged, "success", 0, duration_ms)
+                    audit_logger = get_audit_logger()
+                    if audit_logger is not None:
+                        audit_logger.log_execution(module_id, merged, "success", 0, duration_ms)
                     return
                 # else: fall through to normal execution
 
             # -- Traced execution --
             if trace_flag and hasattr(executor, "call_with_trace"):
-                result, trace = executor.call_with_trace(
-                    module_id,
-                    merged,
-                    strategy=strategy_name,
-                )
+                warn_if_acl_bypassed(strategy_name)
+                _acl_ctx = _cli_acl_context()
+                if _acl_ctx is not None:
+                    result, trace = executor.call_with_trace(
+                        module_id,
+                        merged,
+                        _acl_ctx,
+                        strategy=strategy_name,
+                    )
+                else:
+                    result, trace = executor.call_with_trace(
+                        module_id,
+                        merged,
+                        strategy=strategy_name,
+                    )
                 duration_ms = int((time.monotonic() - audit_start) * 1000)
 
                 # Print result (before audit so a formatter raise doesn't double-log)
@@ -740,17 +771,27 @@ def build_module_command(
 
                 # Audit after formatting — formatter raise will not produce a
                 # duplicate success+error pair
-                if _audit_logger is not None:
-                    _audit_logger.log_execution(module_id, merged, "success", 0, duration_ms)
+                audit_logger = get_audit_logger()
+                if audit_logger is not None:
+                    audit_logger.log_execution(module_id, merged, "success", 0, duration_ms)
                 return
 
             # -- Standard execution (with optional strategy) --
             sandbox = Sandbox(enabled=sandbox_flag).with_extensions_root(extensions_root)
+            _acl_ctx = _cli_acl_context()
             if strategy_name and hasattr(executor, "call_with_trace"):
+                warn_if_acl_bypassed(strategy_name)
                 if sandbox_flag:
                     # Sandbox mode: delegate to subprocess (strategy not available in sandbox)
                     logger.warning("--sandbox ignores --strategy; sandboxed execution uses default strategy.")
-                    result = sandbox.execute(module_id, merged, executor)
+                    result = sandbox.execute(module_id, merged, executor, _acl_ctx)
+                elif _acl_ctx is not None:
+                    result, _trace = executor.call_with_trace(
+                        module_id,
+                        merged,
+                        _acl_ctx,
+                        strategy=strategy_name,
+                    )
                 else:
                     # Strategy requires call_with_trace to pass strategy param
                     result, _trace = executor.call_with_trace(
@@ -770,7 +811,7 @@ def build_module_command(
                         "using default pipeline.",
                         strategy_name,
                     )
-                result = sandbox.execute(module_id, merged, executor)
+                result = sandbox.execute(module_id, merged, executor, _acl_ctx)
             duration_ms = int((time.monotonic() - audit_start) * 1000)
 
             # 6. Format and print result (before audit so a formatter raise doesn't
@@ -778,8 +819,9 @@ def build_module_command(
             format_exec_result(result, output_format, fields=output_fields)
 
             # 7. Audit log (success) — only reached if formatting did not raise
-            if _audit_logger is not None:
-                _audit_logger.log_execution(module_id, merged, "success", 0, duration_ms)
+            audit_logger = get_audit_logger()
+            if audit_logger is not None:
+                audit_logger.log_execution(module_id, merged, "success", 0, duration_ms)
 
         except KeyboardInterrupt:
             click.echo("Execution cancelled.", err=True)
@@ -791,9 +833,10 @@ def build_module_command(
             exit_code = _ERROR_CODE_MAP.get(error_code, 1) if isinstance(error_code, str) else 1
 
             # Audit log (error)
-            if _audit_logger is not None:
+            audit_logger = get_audit_logger()
+            if audit_logger is not None:
                 duration_ms = int((time.monotonic() - audit_start) * 1000)
-                _audit_logger.log_execution(module_id, merged, "error", exit_code, duration_ms)
+                audit_logger.log_execution(module_id, merged, "error", exit_code, duration_ms)
 
             if output_format == "json" or not sys.stderr.isatty():
                 _emit_error_json(e, exit_code)

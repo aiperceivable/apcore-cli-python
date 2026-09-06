@@ -440,7 +440,7 @@ def register_exec_command(
             fmt = resolve_format(output_format)
             format_exec_result(result, fmt, fields)
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(module_id, merged, "success", 0, duration_ms)
         except Exception as e:
@@ -452,7 +452,7 @@ def register_exec_command(
             # attribute and would otherwise fall through to exit 1.
             exit_code = exit_code_for_error(e)
             duration_ms = int((time.monotonic() - audit_start) * 1000)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(module_id, merged, "error", exit_code, duration_ms)
             _emit_error_tty(e, exit_code)
@@ -496,7 +496,7 @@ def register_validate_command(apcli_group: click.Group, registry: Any, executor:
             # / ConfigDecryptionError / ApprovalDeniedError etc. resolve to
             # their canonical exit code instead of falling through to 1.
             exit_code = exit_code_for_error(e)
-            _al = _cli_module._audit_logger
+            _al = _cli_module.get_audit_logger()
             if _al is not None:
                 _al.log_execution(module_id, merged, "error", exit_code, 0)
             _emit_error_tty(e, exit_code)

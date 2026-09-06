@@ -129,23 +129,23 @@ class TestLOW2AuditLoggerCleanup:
         """set_audit_logger(None) properly clears the global."""
 
         set_audit_logger(MagicMock())
-        from apcore_cli import cli as cli_mod
+        from apcore_cli.security import audit as audit_mod
 
-        assert cli_mod._audit_logger is not None
+        assert audit_mod._audit_logger is not None
 
         set_audit_logger(None)
-        assert cli_mod._audit_logger is None
+        assert audit_mod._audit_logger is None
 
     def test_audit_logger_isolated_between_tests_1(self):
         """First test: logger should be None (not leaked from prior test)."""
-        from apcore_cli import cli as cli_mod
+        from apcore_cli.security import audit as audit_mod
 
         # If LOW-2 is fixed, this should be None unless explicitly set
         set_audit_logger(None)  # Ensure clean state
-        assert cli_mod._audit_logger is None
+        assert audit_mod._audit_logger is None
 
     def test_audit_logger_isolated_between_tests_2(self):
         """Second test: confirms no leak from test_1."""
-        from apcore_cli import cli as cli_mod
+        from apcore_cli.security import audit as audit_mod
 
-        assert cli_mod._audit_logger is None
+        assert audit_mod._audit_logger is None

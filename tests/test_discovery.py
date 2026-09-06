@@ -382,12 +382,12 @@ class TestExposureListFilter:
 class TestValidateErrBranchAuditsExecution:
     def test_validate_err_branch_audits_execution(self):
         """D11-009: Validate command Err branch must call audit log_execution."""
-        import apcore_cli.cli as cli_module
         from apcore_cli.discovery import register_validate_command
+        from apcore_cli.security import audit as audit_module
 
         mock_audit = MagicMock()
-        original_audit = cli_module._audit_logger
-        cli_module._audit_logger = mock_audit
+        original_audit = audit_module._audit_logger
+        audit_module._audit_logger = mock_audit
         try:
 
             @click.group()
@@ -408,7 +408,7 @@ class TestValidateErrBranchAuditsExecution:
             runner.invoke(apcli, ["validate", "test.mod"])
             assert mock_audit.log_execution.called, "audit log_execution must be called in validate Err branch"
         finally:
-            cli_module._audit_logger = original_audit
+            audit_module._audit_logger = original_audit
 
 
 class TestApcliExecAppliesSandboxFlag:
@@ -436,9 +436,9 @@ class TestApcliExecAppliesSandboxFlag:
         runner = CliRunner()
         with patch.object(Sandbox, "execute", return_value={"ok": True}):
             result = runner.invoke(apcli, ["exec", "test.mod", "--sandbox"])
-        assert result.exit_code != 2, (
-            f"--sandbox flag must be accepted by apcli exec (exit_code={result.exit_code}, output={result.output})"
-        )
+        assert (
+            result.exit_code != 2
+        ), f"--sandbox flag must be accepted by apcli exec (exit_code={result.exit_code}, output={result.output})"
 
 
 class TestExecAndValidateExitCodeMapping:

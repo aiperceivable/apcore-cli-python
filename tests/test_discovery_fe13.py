@@ -110,7 +110,7 @@ class TestRegisterExecCommand:
         executor = MagicMock()
         executor.call.return_value = {"result": "ok"}
         audit_logger = MagicMock()
-        with patch("apcore_cli.cli._audit_logger", audit_logger):
+        with patch("apcore_cli.security.audit._audit_logger", audit_logger):
             cli = _build_apcli_with(register_exec_command, registry, executor)
             CliRunner().invoke(cli, ["exec", "foo.bar", "--yes", "--format", "json"])
         audit_logger.log_execution.assert_called_once()
@@ -126,7 +126,7 @@ class TestRegisterExecCommand:
         executor = MagicMock()
         executor.call.side_effect = RuntimeError("boom")
         audit_logger = MagicMock()
-        with patch("apcore_cli.cli._audit_logger", audit_logger):
+        with patch("apcore_cli.security.audit._audit_logger", audit_logger):
             cli = _build_apcli_with(register_exec_command, registry, executor)
             CliRunner().invoke(cli, ["exec", "foo.bar", "--yes"])
         audit_logger.log_execution.assert_called_once()
