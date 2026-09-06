@@ -23,6 +23,7 @@ from typing import Any
 import click
 
 import apcore_cli.cli as _cli_module
+from apcore_cli.acl_loader import cli_context, enforce_acl_for_unguarded_path
 from apcore_cli.cli import (
     _first_failed_exit_code,
     collect_input,
@@ -37,10 +38,23 @@ from apcore_cli.output import (
     format_module_list,
     resolve_format,
 )
+from apcore_cli.strategy import warn_if_acl_bypassed
 
 logger = logging.getLogger("apcore_cli.discovery")
 
 _TAG_PATTERN = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
+def _validate_with_context(executor: Any, module_id: str, inputs: dict[str, Any]) -> Any:
+    """Run ``executor.validate``, carrying the FE-14 identity when one is set.
+
+    The context is passed **only when non-None** so the no-identity path keeps
+    the exact two-argument call it has always made.
+    """
+    acl_context = cli_context()
+    if acl_context is not None:
+        return executor.validate(module_id, inputs, acl_context)
+    return executor.validate(module_id, inputs)
 
 
 def _validate_tag(tag: str) -> None:
@@ -294,7 +308,8 @@ def register_exec_command(
     are passed as a JSON object via ``--input``.
     """
     from apcore_cli.approval import check_approval
-    from apcore_cli.cli import _ERROR_CODE_MAP, _emit_error_tty
+    from apcore_cli.cli import _emit_error_tty
+    from apcore_cli.exit_codes import exit_code_for_error
 
     @apcli_group.command("exec")
     @click.argument("module_id")
@@ -371,9 +386,22 @@ def register_exec_command(
 
         audit_start = time.monotonic()
         try:
+            # §4.10: `--sandbox` runs in a subprocess that never sees the
+            # attached ACL, so the access decision is reached here, in the
+            # parent, before the spawn — and its `approval: required` is
+            # unioned with the annotation below.
+            acl_approval = False
+            if sandbox:
+                acl_approval = enforce_acl_for_unguarded_path(module_id, cli_context(), arguments=merged)
+
             # D11-012: pass approval_timeout through unchanged; check_approval
             # internally resolves explicit arg > APCORE_CLI_APPROVAL_TIMEOUT env > 60s.
-            check_approval(module_def, auto_approve=auto_approve, timeout=approval_timeout)
+            check_approval(
+                module_def,
+                auto_approve=auto_approve,
+                timeout=approval_timeout,
+                acl_requires_approval=acl_approval,
+            )
 
             if dry_run:
                 # D11-013: defensive guard mirroring TS discovery.ts:334. Some
@@ -381,18 +409,32 @@ def register_exec_command(
                 # synthetic `{valid: True}` preflight instead of crashing with
                 # AttributeError. Rust uses build_preflight_result for the same
                 # synthetic fallback.
-                preflight = executor.validate(module_id, merged) if hasattr(executor, "validate") else {"valid": True}
+                preflight = (
+                    _validate_with_context(executor, module_id, merged)
+                    if hasattr(executor, "validate")
+                    else {"valid": True}
+                )
                 format_preflight_result(preflight, output_format)
                 return
 
             if (trace or strategy) and hasattr(executor, "call_with_trace"):
-                result, _trace_data = executor.call_with_trace(
-                    module_id,
-                    merged,
-                    strategy=strategy,
-                )
+                warn_if_acl_bypassed(strategy)
+                acl_context = cli_context()
+                if acl_context is not None:
+                    result, _trace_data = executor.call_with_trace(
+                        module_id,
+                        merged,
+                        acl_context,
+                        strategy=strategy,
+                    )
+                else:
+                    result, _trace_data = executor.call_with_trace(
+                        module_id,
+                        merged,
+                        strategy=strategy,
+                    )
             else:
-                result = Sandbox(enabled=sandbox).execute(module_id, merged, executor)
+                result = Sandbox(enabled=sandbox).execute(module_id, merged, executor, cli_context())
 
             # Format output FIRST (canonical order: format → audit on success)
             fmt = resolve_format(output_format)
@@ -402,8 +444,13 @@ def register_exec_command(
             if _al is not None:
                 _al.log_execution(module_id, merged, "success", 0, duration_ms)
         except Exception as e:
-            code = getattr(e, "code", None)
-            exit_code = _ERROR_CODE_MAP.get(code, 1) if isinstance(code, str) else 1
+            # Cross-SDK parity (audit D11-B-002 sibling): resolve via the full
+            # error->exit-code mapping, not just the narrow apcore wire-code
+            # table. `exit_code_for_error` also matches on the CLI's own
+            # exception CLASSES (ApprovalDeniedError, AuthenticationError,
+            # ConfigDecryptionError, ...) which never carry a `.code`
+            # attribute and would otherwise fall through to exit 1.
+            exit_code = exit_code_for_error(e)
             duration_ms = int((time.monotonic() - audit_start) * 1000)
             _al = _cli_module._audit_logger
             if _al is not None:
@@ -416,7 +463,8 @@ def register_exec_command(
 
 def register_validate_command(apcli_group: click.Group, registry: Any, executor: Any) -> None:
     """Register the ``validate`` subcommand on the given group."""
-    from apcore_cli.cli import _ERROR_CODE_MAP, _emit_error_tty
+    from apcore_cli.cli import _emit_error_tty
+    from apcore_cli.exit_codes import exit_code_for_error
 
     @apcli_group.command("validate")
     @click.argument("module_id")
@@ -439,11 +487,15 @@ def register_validate_command(apcli_group: click.Group, registry: Any, executor:
 
         merged = collect_input(stdin_input, {}, False) if stdin_input else {}
         try:
-            preflight = executor.validate(module_id, merged)
+            preflight = _validate_with_context(executor, module_id, merged)
             format_preflight_result(preflight, output_format)
         except Exception as e:
-            code = getattr(e, "code", None)
-            exit_code = _ERROR_CODE_MAP.get(code, 1) if isinstance(code, str) else 1
+            # See register_exec_command's sibling fix: use the full
+            # error->exit-code mapping (class-based AND wire-code-based),
+            # not just the narrow apcore wire-code table, so AuthenticationError
+            # / ConfigDecryptionError / ApprovalDeniedError etc. resolve to
+            # their canonical exit code instead of falling through to 1.
+            exit_code = exit_code_for_error(e)
             _al = _cli_module._audit_logger
             if _al is not None:
                 _al.log_execution(module_id, merged, "error", exit_code, 0)

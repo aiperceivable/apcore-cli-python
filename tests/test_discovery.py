@@ -436,6 +436,81 @@ class TestApcliExecAppliesSandboxFlag:
         runner = CliRunner()
         with patch.object(Sandbox, "execute", return_value={"ok": True}):
             result = runner.invoke(apcli, ["exec", "test.mod", "--sandbox"])
-        assert (
-            result.exit_code != 2
-        ), f"--sandbox flag must be accepted by apcli exec (exit_code={result.exit_code}, output={result.output})"
+        assert result.exit_code != 2, (
+            f"--sandbox flag must be accepted by apcli exec (exit_code={result.exit_code}, output={result.output})"
+        )
+
+
+class TestExecAndValidateExitCodeMapping:
+    """discovery.py:483 — the ``except Exception`` handlers in ``exec`` and
+    ``validate`` resolved the exit code via ``_ERROR_CODE_MAP`` (the narrow
+    apcore wire-code table, keyed on a string ``e.code``) instead of the full
+    ``exit_code_for_error`` (which also matches CLI exception CLASSES —
+    ``AuthenticationError``, ``ConfigDecryptionError``, ``ApprovalDeniedError``,
+    etc.). ``AuthenticationError`` carries no ``.code`` attribute at all, so it
+    fell through to the generic exit 1 instead of its canonical 77.
+    """
+
+    def test_validate_maps_authentication_error_to_77(self):
+        from apcore_cli.discovery import register_validate_command
+        from apcore_cli.security.auth import AuthenticationError
+
+        @click.group()
+        def apcli():
+            pass
+
+        registry = MagicMock()
+        module_def = MagicMock()
+        module_def.module_id = "test.mod"
+        module_def.input_schema = None
+        module_def.annotations = None
+        registry.get_definition.return_value = module_def
+        executor = MagicMock()
+        executor.validate.side_effect = AuthenticationError("no api key configured")
+        register_validate_command(apcli, registry, executor)
+
+        result = CliRunner().invoke(apcli, ["validate", "test.mod"])
+        assert result.exit_code == 77, result.output
+
+    def test_exec_maps_authentication_error_to_77(self):
+        from apcore_cli.discovery import register_exec_command
+        from apcore_cli.security.auth import AuthenticationError
+
+        @click.group()
+        def apcli():
+            pass
+
+        registry = MagicMock()
+        module_def = MagicMock()
+        module_def.module_id = "test.mod"
+        module_def.description = "A test"
+        module_def.input_schema = None
+        module_def.annotations = None
+        registry.get_definition.return_value = module_def
+        executor = MagicMock()
+        executor.call.side_effect = AuthenticationError("no api key configured")
+        register_exec_command(apcli, registry, executor)
+
+        result = CliRunner().invoke(apcli, ["exec", "test.mod"])
+        assert result.exit_code == 77, result.output
+
+    def test_validate_maps_config_decryption_error_to_47(self):
+        from apcore_cli.discovery import register_validate_command
+        from apcore_cli.security.config_encryptor import ConfigDecryptionError
+
+        @click.group()
+        def apcli():
+            pass
+
+        registry = MagicMock()
+        module_def = MagicMock()
+        module_def.module_id = "test.mod"
+        module_def.input_schema = None
+        module_def.annotations = None
+        registry.get_definition.return_value = module_def
+        executor = MagicMock()
+        executor.validate.side_effect = ConfigDecryptionError("bad key")
+        register_validate_command(apcli, registry, executor)
+
+        result = CliRunner().invoke(apcli, ["validate", "test.mod"])
+        assert result.exit_code == 47, result.output
