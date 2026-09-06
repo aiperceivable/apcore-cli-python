@@ -264,10 +264,16 @@ def register_enable_command(apcli_group: click.Group, executor: Any) -> None:
         """Enable a disabled module at runtime."""
         import time
 
-        _check_system_approval(executor, "system.control.toggle_feature", yes)
         fmt = resolve_format(output_format)
         audit_start = time.monotonic()
         try:
+            # Cross-SDK parity (audit D11-B fix): the approval check must run
+            # INSIDE this try block. check_approval()'s own contract requires
+            # the caller to catch ApprovalDeniedError/ApprovalTimeoutError —
+            # __main__.py's `cli(standalone_mode=True)` does not, so a denial
+            # raised outside this block would surface as an unhandled
+            # traceback (exit 1) instead of the canonical exit 46 below.
+            _check_system_approval(executor, "system.control.toggle_feature", yes)
             result = _call_system_module(
                 executor,
                 "system.control.toggle_feature",
@@ -317,10 +323,13 @@ def register_disable_command(apcli_group: click.Group, executor: Any) -> None:
         """Disable a module at runtime (calls are rejected until re-enabled)."""
         import time
 
-        _check_system_approval(executor, "system.control.toggle_feature", yes)
         fmt = resolve_format(output_format)
         audit_start = time.monotonic()
         try:
+            # See enable_cmd: the approval check must run INSIDE this try
+            # block so a denial routes through _exit_on_system_error (exit
+            # 46) instead of an unhandled traceback (D11-B fix).
+            _check_system_approval(executor, "system.control.toggle_feature", yes)
             result = _call_system_module(
                 executor,
                 "system.control.toggle_feature",
@@ -370,10 +379,13 @@ def register_reload_command(apcli_group: click.Group, executor: Any) -> None:
         """Hot-reload a module from disk."""
         import time
 
-        _check_system_approval(executor, "system.control.reload_module", yes)
         fmt = resolve_format(output_format)
         audit_start = time.monotonic()
         try:
+            # See enable_cmd: the approval check must run INSIDE this try
+            # block so a denial routes through _exit_on_system_error (exit
+            # 46) instead of an unhandled traceback (D11-B fix).
+            _check_system_approval(executor, "system.control.reload_module", yes)
             result = _call_system_module(
                 executor,
                 "system.control.reload_module",
@@ -439,7 +451,6 @@ def register_config_command(apcli_group: click.Group, executor: Any) -> None:
         """Update a runtime configuration value (requires approval)."""
         import time
 
-        _check_system_approval(executor, "system.control.update_config", auto_approve)
         fmt = resolve_format(output_format)
         try:
             parsed_value = json.loads(value)
@@ -448,6 +459,10 @@ def register_config_command(apcli_group: click.Group, executor: Any) -> None:
 
         audit_start = time.monotonic()
         try:
+            # See enable_cmd: the approval check must run INSIDE this try
+            # block so a denial routes through _exit_on_system_error (exit
+            # 46) instead of an unhandled traceback (D11-B fix).
+            _check_system_approval(executor, "system.control.update_config", auto_approve)
             result = _call_system_module(
                 executor,
                 "system.control.update_config",

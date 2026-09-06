@@ -412,6 +412,69 @@ class TestConfigCommand:
         assert args[2] is True  # --yes propagated as auto_approve
 
 
+class TestApprovalDenialExitsCleanly:
+    """Issue system_cmd.py:267 — `_check_system_approval` was called BEFORE
+    the local `try:` block in enable/disable/reload/config-set, so a denied
+    or timed-out approval propagated as an unhandled Python traceback (exit
+    1 under Click's `standalone_mode=True`) instead of the canonical exit 46
+    every other error in these commands produces via `_exit_on_system_error`.
+
+    Regression for moving all four `_check_system_approval` call sites
+    inside their function's `try:` block.
+    """
+
+    @pytest.mark.parametrize(
+        ("registrar", "args"),
+        [
+            (register_enable_command, ["enable", "foo.bar", "--reason", "r", "--yes"]),
+            (register_disable_command, ["disable", "foo.bar", "--reason", "r", "--yes"]),
+            (register_reload_command, ["reload", "foo.bar", "--reason", "r", "--yes"]),
+            (register_config_command, ["config", "set", "k", "1", "--reason", "r", "--yes"]),
+        ],
+        ids=["enable", "disable", "reload", "config_set"],
+    )
+    def test_denied_approval_exits_46_not_unhandled(self, registrar, args):
+        from unittest.mock import patch
+
+        from apcore_cli.approval import ApprovalDeniedError
+
+        ex = _make_executor(return_value={"ok": True})
+        cli = _build_apcli_with(registrar, ex)
+        with patch(
+            "apcore_cli.system_cmd._check_system_approval",
+            side_effect=ApprovalDeniedError("Approval denied."),
+        ):
+            result = CliRunner().invoke(cli, args)
+
+        assert result.exit_code == 46, (result.output, result.exception)
+        # The denial must short-circuit before the underlying system module runs.
+        ex.call.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("registrar", "args"),
+        [
+            (register_enable_command, ["enable", "foo.bar", "--reason", "r", "--yes"]),
+            (register_config_command, ["config", "set", "k", "1", "--reason", "r", "--yes"]),
+        ],
+        ids=["enable", "config_set"],
+    )
+    def test_timed_out_approval_exits_46_not_unhandled(self, registrar, args):
+        from unittest.mock import patch
+
+        from apcore_cli.approval import ApprovalTimeoutError
+
+        ex = _make_executor(return_value={"ok": True})
+        cli = _build_apcli_with(registrar, ex)
+        with patch(
+            "apcore_cli.system_cmd._check_system_approval",
+            side_effect=ApprovalTimeoutError("Approval prompt timed out."),
+        ):
+            result = CliRunner().invoke(cli, args)
+
+        assert result.exit_code == 46, (result.output, result.exception)
+        ex.call.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Legacy batched wrapper
 # ---------------------------------------------------------------------------
@@ -491,8 +554,7 @@ class TestHealthSummaryFourTiers:
 
         assert "Summary: 1 unknown" in out
         assert "no data" not in out, (
-            "a project whose modules are all unaccounted-for must not report "
-            "'no data' while the table above lists them"
+            "a project whose modules are all unaccounted-for must not report 'no data' while the table above lists them"
         )
 
     def test_all_four_tiers_are_reported(self, capsys):
