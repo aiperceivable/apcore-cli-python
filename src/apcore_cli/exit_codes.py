@@ -87,6 +87,11 @@ APCORE_ERROR_CODE_MAP: dict[str, int] = {
     "MODULE_EXECUTE_ERROR": EXIT_MODULE_EXECUTE_ERROR,
     "MODULE_TIMEOUT": EXIT_MODULE_TIMEOUT,
     "ACL_DENIED": EXIT_ACL_DENIED,
+    # FE-14 §6.1: a malformed ACL file is a *configuration* fault, not a
+    # denial. 47 (CONFIG_INVALID) rather than 77 — 77 must stay reserved for
+    # an actual access decision or scripts branching on it would misreport a
+    # broken config as a permissions problem.
+    "ACL_RULE_ERROR": EXIT_CONFIG_INVALID,
     # Config Bus errors (apcore >= 0.15.0)
     "CONFIG_NAMESPACE_RESERVED": EXIT_CONFIG_NAMESPACE_RESERVED,
     "CONFIG_NAMESPACE_DUPLICATE": EXIT_CONFIG_NAMESPACE_DUPLICATE,

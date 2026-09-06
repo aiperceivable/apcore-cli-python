@@ -26,6 +26,16 @@ import click
 from apcore_toolkit import BindingLoader, DisplayResolver, RegistryWriter
 from apcore_toolkit.convention_scanner import ConventionScanner
 
+from apcore_cli.acl_cmd import register_acl_command
+from apcore_cli.acl_loader import (
+    acl_file_for_root,
+    build_identity,
+    load_cli_acl,
+    resolve_acl_root,
+    resolve_audit_settings,
+    set_cli_acl,
+    set_cli_identity,
+)
 from apcore_cli.builtin_group import ApcliGroup
 from apcore_cli.cli import GroupedModuleGroup, set_audit_logger, set_verbose_help
 from apcore_cli.config import ConfigResolver
@@ -37,6 +47,7 @@ from apcore_cli.discovery import (
 )
 from apcore_cli.exposure import ExposureFilter
 from apcore_cli.init_cmd import register_init_command
+from apcore_cli.openapi_cmd import register_openapi_command
 from apcore_cli.security.audit import AuditLogger
 from apcore_cli.shell import (
     configure_man_help,
@@ -84,6 +95,7 @@ def create_cli(
     version: str | None = None,
     description: str | None = None,
     builtin_group_name: str = "apcli",
+    acl: str | Any | None = None,
 ) -> click.Group:
     """Create the CLI application.
 
@@ -157,6 +169,19 @@ def create_cli(
                             are apcore-cli-internal toggles, not user-facing.
                             Mirrors TS ``createCli({builtinGroupName})``.
                             Cross-SDK parity: 2026-05-08.
+        acl: ACL governance source (FE-14 §4.1, tier 1). Accepts a **path**
+             (file or directory, resolved with apcore's ``acl/global_acl.yaml``
+             directory convention) or a pre-built ``apcore.ACL`` instance.
+             ``None`` falls back to ``APCORE_ACL_ROOT``, then ``acl.root`` in
+             ``apcore.yaml``, then ``./acl`` when it exists. A root that
+             resolves to nothing attaches nothing — enforcement stays off and
+             no default-deny ACL is synthesized. Discovery is **skipped**
+             entirely when the caller supplied its own ``executor`` and passed
+             no ``acl=``: an embedded host that built its own Executor owns its
+             own governance, and attaching a CLI-discovered ACL over it would
+             change enforcement behind the host's back. An explicit ``acl=``
+             is an instruction and is always honoured. Also settable from the
+             CLI via ``--acl PATH`` (standalone mode only).
     """
     if app is not None and (registry is not None or executor is not None):
         raise ValueError("app is mutually exclusive with registry/executor")
@@ -170,6 +195,11 @@ def create_cli(
     if app is not None:
         registry = app.registry
         executor = app.executor
+
+    # FE-14 §4.2: lock in "the executor was caller-supplied" BEFORE the
+    # discovery paths below may construct one. Attachment is skipped for an
+    # injected executor unless the caller also passed an explicit `acl=`.
+    executor_injected = executor is not None
 
     if prog_name is None:
         prog_name = os.path.basename(sys.argv[0]) or "apcore-cli"
@@ -349,6 +379,26 @@ def create_cli(
         # with requires_approval=True would otherwise execute with no prompt.
         logger.warning("Failed to wire CliApprovalHandler: %s", e)
 
+    # Attach an ACL to the Executor (FE-14 §4.2). Enforcement-only-when-
+    # configured: a missing `acl.root` attaches nothing and changes no
+    # behaviour, preserving apcore's `ACL.discover` invariant that a missing
+    # path MUST NOT synthesize an empty default-deny ACL.
+    resolved_acl, acl_source = _resolve_cli_acl(config, acl, executor_injected=executor_injected)
+    set_cli_acl(None)
+    if resolved_acl is not None:
+        if executor is not None and hasattr(executor, "set_acl"):
+            try:
+                executor.set_acl(resolved_acl)
+                # Also held process-wide: §4.10's gate for execution paths
+                # that never reach this Executor (notably `--sandbox`) has to
+                # reach an access decision in the parent.
+                set_cli_acl(resolved_acl)
+                logger.debug("ACL attached to Executor from %s.", acl_source or "<caller-supplied>")
+            except Exception as e:
+                logger.warning("Failed to attach ACL to Executor: %s", e)
+        else:
+            logger.warning("An ACL was resolved but the Executor does not support set_acl(); not attached.")
+
     # Build exposure filter (FE-12)
     if isinstance(expose, ExposureFilter):
         exposure_filter = expose
@@ -437,18 +487,56 @@ def create_cli(
         default=False,
         help="Show all options in help output (including built-in options).",
     )
+    # FE-14 §4.3 — identity flags. These are unauthenticated caller assertions:
+    # they are useful for *evaluating* a rule set locally and are not a
+    # deployment's only control. `Context.caller_id` is never settable from
+    # argv (§7 rule 2) — a real invocation is always the caller `@external`.
+    #
+    # The four root ACL flags' `help=` strings and metavars are pinned
+    # NORMATIVELY by spec §4.3 and MUST NOT be reworded per-SDK: the
+    # `apcli-visibility` conformance fixtures byte-match root `--help` across
+    # Python, TypeScript and Rust, so this text is a cross-SDK contract rather
+    # than a stylistic choice. Metavars are set explicitly because click would
+    # otherwise default all four to `TEXT`.
+    @click.option(
+        "--identity-id",
+        "identity_id",
+        default=None,
+        metavar="ID",
+        help="Assert Identity.id for ACL conditions. Unauthenticated assertion, not authentication.",
+    )
+    @click.option(
+        "--identity-type",
+        "identity_type",
+        default=None,
+        metavar="TYPE",
+        help=(
+            "Assert Identity.type for ACL conditions (default: user). Unauthenticated assertion, not authentication."
+        ),
+    )
+    @click.option(
+        "--role",
+        "roles",
+        multiple=True,
+        metavar="ROLE",
+        help=("Assert an Identity role for ACL conditions. Repeatable. Unauthenticated assertion, not authentication."),
+    )
     @click.pass_context
     def cli(
         ctx: click.Context,
         log_level: str | None = None,
         all_options_help: bool = False,
-        **_discovery_opts: Any,  # --extensions-dir/--commands-dir/--binding when standalone
+        identity_id: str | None = None,
+        identity_type: str | None = None,
+        roles: tuple[str, ...] = (),
+        **_discovery_opts: Any,  # --extensions-dir/--commands-dir/--binding/--acl when standalone
     ) -> None:
         if log_level is not None:
             level = getattr(logging, log_level.upper(), logging.WARNING)
             logging.getLogger().setLevel(level)
             apcore_level = level if level <= logging.INFO else logging.ERROR
             logging.getLogger("apcore").setLevel(apcore_level)
+        set_cli_identity(build_identity(identity_id, identity_type, roles))
         ctx.ensure_object(dict)
         ctx.obj["extensions_dir"] = ext_dir
         ctx.obj["all_options_help"] = all_options_help
@@ -491,6 +579,19 @@ def create_cli(
                     ),
                     expose_value=False,
                 ),
+                # FE-14 §4.1 tier 1. Registered here purely so Click accepts
+                # it; the value is pre-scraped from argv in ``__main__`` and
+                # handed to ``create_cli(acl=...)`` before Click runs, exactly
+                # as ``--extensions-dir`` / ``--binding`` are. Help text and
+                # metavar are pinned normatively by §4.3 — see the note on the
+                # identity flags above.
+                click.Option(
+                    ["--acl", "acl_opt"],
+                    default=None,
+                    metavar="PATH",
+                    help="Path to the ACL file or directory (default: ./acl)",
+                    expose_value=False,
+                ),
             ]
         )
 
@@ -516,7 +617,7 @@ def create_cli(
     # allowed to claim the new name either.
     cli._reserved_group_names = frozenset({apcli_cfg.name})  # type: ignore[attr-defined]
 
-    # Dispatch the 13-entry subcommand registrar table (FE-13 §4.9).
+    # Dispatch the 15-entry subcommand registrar table (FE-13 §4.9).
     _register_apcli_subcommands(
         apcli_group,
         apcli_cfg,
@@ -524,6 +625,8 @@ def create_cli(
         executor,
         exposure_filter,
         prog_name,
+        acl=resolved_acl,
+        acl_source=acl_source,
     )
 
     # Root-level --help --man support (stays at root per spec §4.1).
@@ -636,6 +739,58 @@ def _apply_toolkit_integration(
 _ALWAYS_REGISTERED: frozenset[str] = frozenset({"exec"})
 
 
+def _resolve_cli_acl(
+    config: ConfigResolver,
+    acl: str | Any | None,
+    *,
+    executor_injected: bool,
+) -> tuple[Any | None, str | None]:
+    """Resolve and load the CLI's ACL (FE-14 §4.1 / §4.2).
+
+    Returns ``(acl, source_path)``. Both are ``None`` when nothing is
+    configured — a missing root is "no enforcement", never a synthesized
+    default-deny ACL.
+
+    Exits ``47`` when a configured ACL file cannot be read or is structurally
+    invalid: the ACL could not be *read*, which is a configuration fault, not
+    a denial, so ``77`` stays reserved for an actual access decision.
+    """
+    from apcore.errors import ACLRuleError, ConfigNotFoundError
+
+    # A pre-built ACL instance is an instruction: attach it verbatim. This is
+    # ahead of the §4.8 audit wiring on purpose — an embedder-supplied ACL is
+    # **never** rebuilt, whatever `acl.audit.enabled` says, so it keeps its own
+    # audit_logger (or its deliberate absence) and its `reload()`.
+    if acl is not None and not isinstance(acl, str):
+        return acl, getattr(acl, "_yaml_path", None)
+
+    cli_flag = acl if isinstance(acl, str) and acl else None
+
+    # An embedded host that constructed its own Executor owns its own
+    # governance; silently attaching a CLI-discovered ACL over the host's
+    # configuration would change enforcement behind the host's back.
+    if cli_flag is None and executor_injected:
+        return None, None
+
+    root = resolve_acl_root(config, cli_flag)
+    if root is None:
+        return None, None
+
+    source = acl_file_for_root(root)
+    audit_enabled, include_denied = resolve_audit_settings(config)
+    try:
+        loaded = load_cli_acl(root, audit_enabled=audit_enabled, include_denied=include_denied)
+    except ConfigNotFoundError as e:
+        click.echo(f"Error: ACL file not found: {getattr(e, 'config_path', None) or source or root}", err=True)
+        sys.exit(EXIT_CONFIG_NOT_FOUND)
+    except ACLRuleError as e:
+        click.echo(f"Error: Invalid ACL configuration in {source or root}: {e}", err=True)
+        sys.exit(EXIT_CONFIG_NOT_FOUND)
+    if loaded is None:
+        return None, None
+    return loaded, source
+
+
 def _register_apcli_subcommands(
     apcli_group: click.Group,
     apcli_cfg: ApcliGroup,
@@ -643,8 +798,10 @@ def _register_apcli_subcommands(
     executor: Any,
     exposure_filter: ExposureFilter,
     prog_name: str,
+    acl: Any | None = None,
+    acl_source: str | None = None,
 ) -> None:
-    """Register the 13 canonical apcli subcommands, filtered by visibility.
+    """Register the 15 canonical apcli subcommands, filtered by visibility.
 
     Mirrors ``_registerApcliSubcommands`` in
     ``../apcore-cli-typescript/src/main.ts``. Each entry declares whether it
@@ -675,6 +832,12 @@ def _register_apcli_subcommands(
         ("config", True, lambda: register_config_command(apcli_group, executor) if system_available else None),
         ("completion", False, lambda: register_completion_command(apcli_group, prog_name=prog_name)),
         ("describe-pipeline", True, lambda: register_pipeline_command(apcli_group, executor)),
+        # FE-14: `acl status` renders Executor.governance_state(), so the
+        # group requires an executor even though `list` / `check` / `validate`
+        # only read the ACL itself.
+        ("acl", True, lambda: register_acl_command(apcli_group, executor, acl, acl_source)),
+        # FE-15a registers nothing and needs neither registry nor executor.
+        ("openapi", False, lambda: register_openapi_command(apcli_group)),
     ]
 
     mode = apcli_cfg.resolve_visibility()

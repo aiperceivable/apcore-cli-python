@@ -194,7 +194,12 @@ class CliApprovalHandler:
 # ---------------------------------------------------------------------------
 
 
-def check_approval(module_def: Any, auto_approve: bool, timeout: int | None = None) -> None:
+def check_approval(
+    module_def: Any,
+    auto_approve: bool,
+    timeout: int | None = None,
+    acl_requires_approval: bool = False,
+) -> None:
     """Check if module requires approval and handle accordingly.
 
     Returns None if approved (or approval not required).
@@ -210,13 +215,23 @@ def check_approval(module_def: Any, auto_approve: bool, timeout: int | None = No
         module_def: Module descriptor with annotations.
         auto_approve: If True, bypass approval (--yes flag).
         timeout: Approval prompt timeout in seconds.
+        acl_requires_approval: An ACL rule matched this call and carried
+            ``approval: required`` (§6.1.6). **Unioned** with the module's own
+            annotation, exactly as apcore's gate composes the two for a normal
+            call — so a rule demanding a human demands one on every execution
+            path, not just the ones that reach the Executor. Only supplied by
+            §4.10 callers that gate an off-Executor path themselves; the
+            executor's own gate handles the in-process case.
     """
     annotations = getattr(module_def, "annotations", None)
-    if annotations is None or (not isinstance(annotations, dict) and not hasattr(annotations, "requires_approval")):
-        return
+    annotated = False
+    if annotations is not None and (isinstance(annotations, dict) or hasattr(annotations, "requires_approval")):
+        annotated = _get_annotation(annotations, "requires_approval", False) is True
 
-    requires = _get_annotation(annotations, "requires_approval", False)
-    if requires is not True:
+    # Union of the two sources. Checked before the annotation shape guard
+    # above short-circuits, so an un-annotated module still honours an
+    # ACL-sourced requirement.
+    if not annotated and not acl_requires_approval:
         return
 
     # D11-012: resolve timeout precedence — explicit arg > APCORE_CLI_APPROVAL_TIMEOUT env > 60s.

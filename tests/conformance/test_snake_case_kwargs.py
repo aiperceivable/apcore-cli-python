@@ -72,11 +72,11 @@ def test_snake_case_kwargs_flow(case: dict[str, Any]) -> None:
     runner = CliRunner()
     args = ["--format", "json", "-y", *case["args"]]
     result = runner.invoke(cmd, args, catch_exceptions=False)
-    assert result.exit_code == 0, f"args={case['args']} exit_code={result.exit_code} " f"stdout={result.output!r}"
+    assert result.exit_code == 0, f"args={case['args']} exit_code={result.exit_code} stdout={result.output!r}"
 
     actual = captured.get("input", {})
     for key, expected in case["expected_input"].items():
         assert key in actual, f"missing key '{key}' in input; full input={actual!r}"
-        assert actual[key] == expected, (
-            f"input['{key}'] = {actual[key]!r}, expected {expected!r}; " f"full input={actual!r}"
-        )
+        assert (
+            actual[key] == expected
+        ), f"input['{key}'] = {actual[key]!r}, expected {expected!r}; full input={actual!r}"

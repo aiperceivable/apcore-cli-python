@@ -525,9 +525,9 @@ class TestApprovalGateEndToEnd:
         # `force` present: the ACL requires a human and the handler refused.
         with pytest.raises(ApprovalDeniedError):
             app.executor.call("git.push", {"remote": "origin", "force": True})
-        assert seen == ["git.push(force,remote)"], (
-            "the gate must have consulted the handler exactly once, for the " f"`force`-carrying call, but saw: {seen}"
-        )
+        assert seen == [
+            "git.push(force,remote)"
+        ], f"the gate must have consulted the handler exactly once, for the `force`-carrying call, but saw: {seen}"
 
     def test_a_refusing_handler_blocks_an_annotation_gated_module(self):
         """Same discrimination for the pre-0.28.0 source of the requirement."""

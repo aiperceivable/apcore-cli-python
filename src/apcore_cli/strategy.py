@@ -69,6 +69,31 @@ _PRESET_STEPS = {
 }
 
 
+#: Strategies whose step list omits ``acl_check`` (see :data:`_PRESET_STEPS`).
+#: Bypassing a *configured* rule set is a materially different event from
+#: running with no rules at all, which is why FE-14 §6.2 extends the warning
+#: beyond the historical ``testing`` banner.
+ACL_BYPASS_STRATEGIES: frozenset[str] = frozenset({"internal", "testing", "minimal"})
+
+
+def warn_if_acl_bypassed(strategy_name: str | None) -> None:
+    """Warn on stderr when *strategy_name* drops the ACL gate (FE-14 §6.2).
+
+    Silent when no ACL is attached: with no rule set configured there is
+    nothing to bypass, and the generic strategy banner already covers it.
+    """
+    if not strategy_name or strategy_name not in ACL_BYPASS_STRATEGIES:
+        return
+    from apcore_cli.acl_loader import is_acl_attached
+
+    if not is_acl_attached():
+        return
+    click.echo(
+        f"⚠ Using '{strategy_name}' strategy — the configured ACL is not enforced.",
+        err=True,
+    )
+
+
 def _render_pipeline_table(
     steps_info: list[dict[str, Any]],
     fmt: str,

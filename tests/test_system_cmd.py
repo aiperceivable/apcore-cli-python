@@ -553,9 +553,9 @@ class TestHealthSummaryFourTiers:
         out = capsys.readouterr().out
 
         assert "Summary: 1 unknown" in out
-        assert "no data" not in out, (
-            "a project whose modules are all unaccounted-for must not report 'no data' while the table above lists them"
-        )
+        assert (
+            "no data" not in out
+        ), "a project whose modules are all unaccounted-for must not report 'no data' while the table above lists them"
 
     def test_all_four_tiers_are_reported(self, capsys):
         from apcore_cli.system_cmd import _format_health_summary_tty

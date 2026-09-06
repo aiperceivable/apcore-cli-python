@@ -56,6 +56,10 @@ def main(prog_name: str | None = None) -> None:
     cmd_dir = _extract_argv_option(None, "--commands-dir")
     bind_path = _extract_argv_option(None, "--binding")
     allowed_prefixes = _extract_argv_option_repeatable(None, "--allowed-prefix") or None
+    # FE-14 §4.1 tier 1: the ACL is resolved and attached during create_cli(),
+    # before Click parses anything, so --acl has to be scraped from argv the
+    # same way --extensions-dir / --binding are.
+    acl_path = _extract_argv_option(None, "--acl")
     # Standalone bin entry — SDK version IS the app version here. Passing it
     # explicitly is required because create_cli() (issue #18) intentionally
     # skips --version for embedded callers that do not opt in.
@@ -65,6 +69,7 @@ def main(prog_name: str | None = None) -> None:
         commands_dir=cmd_dir,
         binding_path=bind_path,
         allowed_prefixes=allowed_prefixes,
+        acl=acl_path,
         version=_sdk_version,
         description=f"{prog_name or 'apcore-cli'} — execute apcore modules from the command line",
     )

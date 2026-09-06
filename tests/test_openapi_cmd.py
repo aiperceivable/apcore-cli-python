@@ -474,9 +474,7 @@ class TestOpenapiGenerateFilenameCollisions:
         assert written == ["a_b.binding.yaml", "a_b_1.binding.yaml"]
         assert "2 file(s) written" in result.output
 
-    def test_second_module_is_not_silently_dropped_when_bare_name_preexists(
-        self, cli, petstore, tmp_path, monkeypatch
-    ):
+    def test_second_module_is_not_silently_dropped_when_bare_name_preexists(self, cli, petstore, tmp_path, monkeypatch):
         """The bug: BOTH modules' planned path used to be identical, so a
         single pre-existing file at that shared path caused both `exists()`
         checks to hit — the loop ran twice (once per module) and printed the

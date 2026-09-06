@@ -99,6 +99,25 @@ class TestApcoreWireCodeFallback:
 
         assert exit_code_for_error(UnmappedError()) == EXIT_MODULE_EXECUTE_ERROR
 
+    def test_acl_rule_error_maps_to_47_not_77(self) -> None:
+        """T-ACL-30 / FE-14 §6.1.
+
+        A malformed ACL file could not be *read* — a configuration fault. 77
+        must stay reserved for an actual access decision, or a script branching
+        on it would misreport a broken config as a permissions problem.
+        """
+        from apcore_cli.exit_codes import APCORE_ERROR_CODE_MAP
+
+        assert APCORE_ERROR_CODE_MAP["ACL_RULE_ERROR"] == 47
+        assert APCORE_ERROR_CODE_MAP["ACL_DENIED"] == 77
+        assert exit_code_for_error(_wire("ACL_RULE_ERROR")) == 47
+
+    def test_real_apcore_acl_rule_error_maps_to_47(self) -> None:
+        """The mapping keys off the wire code the real apcore error carries."""
+        from apcore.errors import ACLRuleError
+
+        assert exit_code_for_error(ACLRuleError("bad rule")) == 47
+
     def test_cli_error_code_map_is_the_shared_map(self) -> None:
         """Two copies of a value set are two things that drift — cli.py's
         ``_ERROR_CODE_MAP`` and the fallback must be the same object."""

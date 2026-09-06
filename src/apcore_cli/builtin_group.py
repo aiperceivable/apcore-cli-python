@@ -95,6 +95,10 @@ APCLI_SUBCOMMAND_NAMES: frozenset[str] = frozenset(
         "config",
         "completion",
         "describe-pipeline",
+        # FE-14 (acl) and FE-15a (openapi) land together in v0.12.0, growing
+        # the canonical set from 13 to 15.
+        "acl",
+        "openapi",
     }
 )
 

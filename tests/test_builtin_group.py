@@ -362,7 +362,8 @@ class TestReservedNames:
 
     def test_subcommand_names_are_frozen(self):
         assert isinstance(APCLI_SUBCOMMAND_NAMES, frozenset)
-        # Spot-check: the 13 canonical entries are present.
+        # Spot-check: the 15 canonical entries are present (13 + FE-14 `acl`
+        # and FE-15a `openapi`, which land together in v0.12.0).
         for name in (
             "list",
             "describe",
@@ -377,5 +378,18 @@ class TestReservedNames:
             "config",
             "completion",
             "describe-pipeline",
+            "acl",
+            "openapi",
         ):
             assert name in APCLI_SUBCOMMAND_NAMES
+        assert len(APCLI_SUBCOMMAND_NAMES) == 15
+
+    def test_registrar_table_covers_the_canonical_set(self):
+        """Drift guard: every name in the set must have a registrar row."""
+        import inspect
+
+        from apcore_cli import factory
+
+        source = inspect.getsource(factory._register_apcli_subcommands)
+        for name in APCLI_SUBCOMMAND_NAMES:
+            assert f'("{name}", ' in source, f"no registrar row for apcli subcommand '{name}'"
