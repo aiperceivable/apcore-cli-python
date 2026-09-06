@@ -67,6 +67,20 @@ class ConfigResolver:
         "cli.approval_timeout": 60,
         "cli.strategy": "standard",
         "cli.group_depth": 1,
+        # ACL governance (FE-14). `acl.root` is an apcore-owned key, so its
+        # env var follows the apcore convention (APCORE_ACL_ROOT) rather than
+        # APCORE_CLI_*. The default matches apcore's own
+        # `Config.get_default("acl.root")`; a missing path attaches nothing.
+        "acl.root": "./acl",
+        # FE-14 §4.8 audit wiring. Both keys are apcore-owned too, so they
+        # follow the same convention (`APCORE_ACL_AUDIT_*`). `include_denied`
+        # takes its meaning from apcore's own `schemas/acl-config.schema.json`
+        # ("Whether to log denied access attempts", default true) rather than
+        # forking a similarly-named key with inverted semantics: `false`
+        # suppresses **deny** entries only, and allow entries keep being
+        # written.
+        "acl.audit.enabled": True,
+        "acl.audit.include_denied": True,
         # Exposure filtering (FE-12)
         "expose.mode": "all",
         "expose.include": [],
@@ -151,6 +165,21 @@ class ConfigResolver:
             logger.warning(
                 "Configuration file '%s' is malformed, using defaults.",
                 self._config_path,
+            )
+            return None
+        except OSError as e:
+            # Cross-SDK parity: TypeScript/Rust both treat every non-"missing"
+            # read error (permission denied, path is a directory, a symlink
+            # loop, ...) as "malformed, use defaults" rather than propagating
+            # it — ConfigResolver.__init__ has a documented "no errors raised"
+            # contract. FileNotFoundError is caught above (silently, no
+            # warning — "no config file" is the common, expected case); every
+            # other OSError is unexpected enough to warn about, mirroring the
+            # yaml.YAMLError branch immediately above.
+            logger.warning(
+                "Configuration file '%s' could not be read (%s), using defaults.",
+                self._config_path,
+                e,
             )
             return None
 

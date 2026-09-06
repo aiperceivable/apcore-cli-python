@@ -1,6 +1,9 @@
 """Tests for ConfigResolver (FE-07)."""
 
 import logging
+import os
+
+import pytest
 
 from apcore_cli.config import ConfigResolver
 
@@ -136,6 +139,33 @@ class TestConfigFileLoading:
             resolver = ConfigResolver(config_path=str(config_file))
         assert resolver._config_file is None
         assert "malformed" in caplog.text
+
+    def test_load_config_file_path_is_a_directory_does_not_raise(self, tmp_path, caplog):
+        """config.py:159 — `open()` on a directory raises IsADirectoryError, a
+        OSError subclass that ``__init__``'s original except clause (only
+        FileNotFoundError + yaml.YAMLError) did not catch, so it propagated
+        out of ConfigResolver.__init__ and violated its "no errors raised"
+        contract. Cross-SDK parity: TS/Rust both fall back to defaults for
+        every non-missing read error.
+        """
+        with caplog.at_level(logging.WARNING, logger="apcore_cli.config"):
+            resolver = ConfigResolver(config_path=str(tmp_path))
+        assert resolver._config_file is None
+        assert "could not be read" in caplog.text
+
+    def test_load_config_file_permission_denied_does_not_raise(self, tmp_path, caplog):
+        config_file = tmp_path / "apcore.yaml"
+        config_file.write_text("extensions:\n  root: /custom/path\n")
+        config_file.chmod(0o000)
+        try:
+            if os.access(str(config_file), os.R_OK):
+                pytest.skip("running as a user that bypasses file permissions (e.g. root)")
+            with caplog.at_level(logging.WARNING, logger="apcore_cli.config"):
+                resolver = ConfigResolver(config_path=str(config_file))
+            assert resolver._config_file is None
+            assert "could not be read" in caplog.text
+        finally:
+            config_file.chmod(0o644)
 
     def test_flatten_dict_nested(self):
         resolver = ConfigResolver(config_path="/nonexistent/apcore.yaml")
