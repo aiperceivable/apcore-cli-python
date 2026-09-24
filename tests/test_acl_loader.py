@@ -659,8 +659,8 @@ class TestAuditWiring:
         real_load = _ACL.load
         captured: dict[str, object] = {}
 
-        def _spy(path: str):
-            result = real_load(path)
+        def _spy(path: str, audit_logger=None):
+            result = real_load(path, audit_logger=audit_logger)
             captured["acl"] = result
             return result
 
@@ -678,14 +678,20 @@ class TestAuditWiring:
         assert acl.check_access("@external", "db.migrate", None).access == "allow"
         assert _audit_records(audit_path) == []
 
-    def test_auditing_path_rebuilds_and_documents_the_reload_cost(self, workdir):
-        """§4.8 requirement 2 — accepted, and pinned so it cannot be silent."""
-        from apcore.errors import ACLRuleError
+    def test_auditing_path_reload_works(self, workdir, audit_path):
+        """§4.8 requirement 2, updated for apcore 0.31.0 (D-66).
 
+        ``ACL.load`` now takes ``audit_logger`` directly, so the auditing path
+        no longer rebuilds the ACL — ``reload()`` stays available, and the
+        installed audit callback survives it (apcore's own §6.3.2
+        requirement 7).
+        """
         _write_acl_dir(workdir)
-        rebuilt = load_cli_acl(str(workdir / "acl"), audit_enabled=True)
-        with pytest.raises(ACLRuleError, match="was not loaded from a YAML file"):
-            rebuilt.reload()
+        acl = load_cli_acl(str(workdir / "acl"), audit_enabled=True)
+        acl.reload()
+
+        acl.check_access("@external", "system.control.disable", None)
+        assert [r["decision"] for r in _audit_records(audit_path)] == ["deny"]
 
     def test_allow_default_survives_the_rebuild(self, workdir, audit_path):
         """T-ACL-27b: `default_effect: allow` + auditing enabled.

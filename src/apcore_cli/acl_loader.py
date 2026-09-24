@@ -210,32 +210,13 @@ def make_acl_audit_logger(*, include_denied: bool = True) -> Callable[[AuditEntr
 def load_cli_acl(root: str, *, audit_enabled: bool = True, include_denied: bool = True) -> ACL | None:
     """Load an :class:`~apcore.ACL` from *root*, or ``None`` for no enforcement.
 
-    When *audit_enabled* is true the ACL is **rebuilt** so it can carry the
-    §4.8 audit callback: ``ACL.load`` takes no ``audit_logger``, and the
-    callback is a constructor argument, so ::
-
-        src = ACL.load(resolved_path)
-        acl = ACL(src.rules, src.default_effect, audit_logger=…)
-
-    is the only lossless way to attach one. Two things about that sequence are
-    load-bearing:
-
-    1. ``default_effect`` is carried from ``src``, **never** a literal. A file
-       may legitimately declare ``default_effect: allow``, and passing the
-       constructor's own ``"deny"`` default would silently invert the governing
-       verdict for every call no rule matched — a rule set that grants by
-       default would start denying, with nothing in the output saying so.
-    2. The rebuilt ACL **loses** :meth:`~apcore.ACL.reload`, which needs the
-       ``_yaml_path`` only ``ACL.load`` sets. This is accepted rather than
-       worked around: no apcore-cli SDK calls ``reload()`` on any path, and
-       writing the private attribute to fake the provenance would make
-       ``reload()`` claim a file the object was not in fact loaded from. An
-       embedder that needs reloading passes its own ACL to
-       ``create_cli(acl=…)``, which §4.2 attaches unchanged.
-
-    With auditing disabled the ``ACL.load`` result is returned **directly** —
-    no rebuild, no callback — so the ``reload()`` caveat applies only to the
-    auditing path.
+    ``ACL.load`` takes ``audit_logger`` directly (apcore 0.31.0, D-66), so the
+    §4.8 callback is attached in the same call that parses the file — no
+    rebuild, and :meth:`~apcore.ACL.reload` stays available on the returned
+    object. (An earlier revision rebuilt the ACL via
+    ``ACL(src.rules, src.default_effect, audit_logger=…)`` to attach the
+    callback after the fact, which lost ``reload()`` in the process; that
+    workaround is gone now that apcore accepts the callback at load time.)
 
     Args:
         root: Resolved ACL root (file or directory).
@@ -259,20 +240,13 @@ def load_cli_acl(root: str, *, audit_enabled: bool = True, include_denied: bool 
     if acl_file is None:
         logger.debug("No ACL at '%s' — enforcement stays off.", root)
         return None
-    src = _ACL.load(acl_file)
-    logger.info("ACL loaded from %s (%d rules).", acl_file, len(src.rules))
-    if not audit_enabled:
-        logger.debug("acl.audit.enabled is false — attaching the loaded ACL directly, no audit callback.")
-        return src
-    acl = _ACL(
-        src.rules,
-        src.default_effect,
-        audit_logger=make_acl_audit_logger(include_denied=include_denied),
-    )
-    logger.debug(
-        "ACL audit callback installed (include_denied=%s); reload() is unavailable on the rebuilt ACL.",
-        include_denied,
-    )
+    audit_logger = make_acl_audit_logger(include_denied=include_denied) if audit_enabled else None
+    acl = _ACL.load(acl_file, audit_logger=audit_logger)
+    logger.info("ACL loaded from %s (%d rules).", acl_file, len(acl.rules))
+    if audit_enabled:
+        logger.debug("ACL audit callback installed (include_denied=%s).", include_denied)
+    else:
+        logger.debug("acl.audit.enabled is false — no audit callback installed.")
     return acl
 
 

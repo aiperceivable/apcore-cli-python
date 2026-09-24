@@ -5,6 +5,18 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-09-24
+
+Patch release. Bumps the required `apcore` floor to `0.31.0` and `apcore-toolkit` to `[http-proxy]>=0.12.0`. All 1021 tests pass (6 xfailed).
+
+### Changed
+
+- **`load_cli_acl` no longer rebuilds the ACL to attach the §4.8 audit callback.** apcore 0.31.0 (decision D-66) makes `ACL.load(path, audit_logger=…)` accept the callback directly; the `ACL(src.rules, src.default_effect, audit_logger=…)` rebuild this SDK relied on — the only lossless way to attach one before this release — is gone. `reload()` is now available on the ACL `load_cli_acl` returns whether or not `acl.audit.enabled` is set; previously it raised `ACLRuleError` on the auditing path.
+
+### Security
+
+- **`apcli openapi scan|generate` inherits apcore-toolkit 0.12.0's `$ref` sibling-key fix.** `OpenAPIScanner` (imported, never reimplemented, by `openapi_cmd.py`/`openapi_source.py`) previously discarded a `$ref` node's sibling keys during schema resolution, dropping `x-sensitive` and letting a field an OpenAPI document marked sensitive reach apcore with nothing to redact on. Fixed upstream; no code change was needed here.
+
 ## [0.12.0] - 2026-09-05
 
 Two features: **FE-14 ACL Governance** and **FE-15a OpenAPI Import**. Bumps the required `apcore` floor to `0.30.0` and `apcore-toolkit` to `[http-proxy]>=0.11.1`. Full suite: 1004 passed, 5 xfailed (815 → 1004; 189 new tests). `APCLI_SUBCOMMAND_NAMES` grows from 13 to 15.
