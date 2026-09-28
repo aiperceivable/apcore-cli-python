@@ -5,6 +5,12 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — BREAKING
+
+- **`apcli openapi scan` / `generate` module IDs follow apcore-toolkit 0.13.0's normalisation; the toolkit floor is now `apcore-toolkit[http-proxy]>=0.13.0`.** The CLI passes the scanner's IDs through unchanged, so it inherits the toolkit's new derivation: IDs derived from camelCase or hyphenated names are now snake_case — `createPets` → `create_pets`, `showPetById` → `show_pet_by_id` — and `generate`'s `.binding.yaml` file names change with them (`createPets.binding.yaml` → `create_pets.binding.yaml`). An `operationId`-derived camelCase ID used to be emitted verbatim and was rejected by apcore's registry when the generated binding was loaded; it is now loadable for the first time. Path-derived IDs with a camelCase parameter change too, although they were already loadable (`/pets/{petId}`: `pets.petid.get` → `pets.pet_id.get`). A legal ID is never rewritten, and a `--prefix` value is normalised with the rest of the ID (`Pet-Store` → `pet_store`). **Migration:** `--include` / `--exclude` patterns and scripts keyed on the old IDs or file names need updating; the filters match the emitted, normalised ID. A segment that still begins with a digit (`POST /v1/2fa` → `v1.2fa.post`) is not repaired: the module is still emitted and carries the toolkit's legality warning, which `scan` renders like any other scanner warning (exit stays `0`; pinned by new test T-OAPI-28). No CLI code changed; 23 tests re-pinned to the new IDs.
+
 ## [0.12.1] - 2026-09-24
 
 Patch release. Bumps the required `apcore` floor to `0.31.0` and `apcore-toolkit` to `[http-proxy]>=0.12.0`. All 1021 tests pass (6 xfailed).

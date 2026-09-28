@@ -1,9 +1,11 @@
 """FE-15a ``apcli openapi`` subcommand group.
 
-Covers T-OAPI-01..14, 18..27 — everything the CLI layer owns. Module-ID
+Covers T-OAPI-01..14, 18..28 — everything the CLI layer owns. Module-ID
 derivation itself is the toolkit's conformance corpus and is deliberately not
 re-tested here (§1.2): these assertions check that the CLI forwards options
-verbatim and renders what comes back.
+verbatim and renders what comes back. The IDs pinned below are the ones
+apcore-toolkit >= 0.13.0 derives, normalised into apcore's Canonical ID
+alphabet (``createPets`` -> ``create_pets``, ``DELETE /pets/{petId}`` -> ``pets.pet_id.delete``).
 """
 
 from __future__ import annotations
@@ -63,6 +65,28 @@ info:
 paths: {}
 """
 
+#: A path segment beginning with a digit: the one case apcore-toolkit 0.13.0's
+#: normalisation does not repair. No operationId, so the ID is path-derived.
+_TWO_FA = """\
+openapi: "3.1.0"
+info:
+  title: TwoFactor
+  version: "1.0.0"
+paths:
+  /v1/2fa:
+    post:
+      summary: Enable 2FA
+      responses:
+        "200":
+          description: ok
+"""
+
+#: The toolkit's pinned legality warning for ``POST /v1/2fa``, byte for byte.
+_TWO_FA_WARNING = (
+    "module_id 'v1.2fa.post' is not a legal apcore module ID: segment '2fa' must match "
+    "^[a-z][a-z0-9_]*$; name this operation with a derive_module_id or transform_module hook"
+)
+
 
 @pytest.fixture
 def cli() -> click.Group:
@@ -107,16 +131,26 @@ class TestOpenapiScan:
         json_path.write_text(json.dumps(doc), encoding="utf-8")
         assert _scan_json(cli, str(json_path))["modules"] == _scan_json(cli, petstore)["modules"]
 
-    def test_operation_id_case_is_preserved(self, cli, petstore):
-        """T-OAPI-03: the CLI never post-processes the toolkit's IDs."""
+    def test_ids_equal_toolkit_derive_module_id(self, cli, petstore):
+        """T-OAPI-03: IDs equal the toolkit's derive_module_id output, unmodified by the CLI."""
+        from apcore_toolkit import derive_module_id
+
         ids = [m["module_id"] for m in _scan_json(cli, petstore)["modules"]]
-        assert "listPets" in ids
-        assert "createPets" in ids
+        doc = yaml.safe_load(_PETSTORE)
+        expected = [
+            derive_module_id(path, method, operation)
+            for path, item in doc["paths"].items()
+            for method, operation in item.items()
+        ]
+        assert ids == expected
+        # operationId `listPets` / `createPets`, snake_cased by the toolkit.
+        assert "list_pets" in ids
+        assert "create_pets" in ids
 
     def test_path_and_method_algorithm_without_operation_id(self, cli, petstore):
         """T-OAPI-04."""
         ids = [m["module_id"] for m in _scan_json(cli, petstore)["modules"]]
-        assert "pets.petid.delete" in ids
+        assert "pets.pet_id.delete" in ids
 
     def test_prefix_is_applied(self, cli, petstore):
         """T-OAPI-05."""
@@ -126,11 +160,12 @@ class TestOpenapiScan:
     def test_include_filter(self, cli, petstore):
         """T-OAPI-06."""
         ids = [m["module_id"] for m in _scan_json(cli, petstore, "--include", "^pets")["modules"]]
-        assert ids == ["pets.petid.delete"]
+        assert ids == ["pets.pet_id.delete"]
 
     def test_exclude_filter(self, cli, petstore):
         ids = [m["module_id"] for m in _scan_json(cli, petstore, "--exclude", "^pets")["modules"]]
-        assert "pets.petid.delete" not in ids
+        assert "pets.pet_id.delete" not in ids
+        assert ids == ["list_pets", "create_pets", "show_pet_by_id"]
 
     @pytest.mark.parametrize("flag", ["--include", "--exclude"])
     def test_invalid_regex_exits_2(self, cli, petstore, flag):
@@ -141,9 +176,12 @@ class TestOpenapiScan:
 
     def test_no_deprecated_omits_deprecated_operations(self, cli, petstore):
         """T-OAPI-08."""
+        # Without the flag the deprecated operation is present, so its absence
+        # below is the flag's doing rather than a mismatched name.
+        assert "show_pet_by_id" in [m["module_id"] for m in _scan_json(cli, petstore)["modules"]]
         ids = [m["module_id"] for m in _scan_json(cli, petstore, "--no-deprecated")["modules"]]
-        assert "showPetById" not in ids
-        assert "listPets" in ids
+        assert "show_pet_by_id" not in ids
+        assert "list_pets" in ids
 
     def test_string_false_deprecated_is_not_deprecated(self, cli, tmp_path):
         """T-OAPI-09: `deprecated: "false"` is a malformed boolean, not True."""
@@ -163,12 +201,12 @@ class TestOpenapiScan:
         path = tmp_path / "o.json"
         path.write_text(json.dumps(doc), encoding="utf-8")
         ids = [m["module_id"] for m in _scan_json(cli, str(path), "--no-deprecated")["modules"]]
-        assert ids == ["opX"]
+        assert ids == ["op_x"]
 
     def test_no_2xx_response_warns_but_keeps_the_module(self, cli, petstore):
         """T-OAPI-10."""
         payload = _scan_json(cli, petstore)
-        delete = next(m for m in payload["modules"] if m["module_id"] == "pets.petid.delete")
+        delete = next(m for m in payload["modules"] if m["module_id"] == "pets.pet_id.delete")
         assert any("no 2xx response" in w for w in delete["warnings"])
 
     def test_external_ref_warning_is_rendered_and_not_fetched(self, cli, tmp_path):
@@ -214,7 +252,7 @@ class TestOpenapiScan:
         assert all("warnings" in m for m in payload["modules"])
         assert payload["hazards"] == [
             {
-                "module_id": "createPets",
+                "module_id": "create_pets",
                 "http_method": "POST",
                 "url_path": "/pets",
                 "parameters": ["dryRun"],
@@ -226,13 +264,13 @@ class TestOpenapiScan:
         """T-OAPI-14: ScannedModule goes straight to format_modules."""
         result = CliRunner().invoke(cli, ["openapi", "scan", petstore, "--format", style])
         assert result.exit_code == 0
-        assert "listPets" in result.output
+        assert "list_pets" in result.output
 
     @pytest.mark.parametrize("style", ["csv", "yaml", "jsonl"])
     def test_tabular_styles_render(self, cli, petstore, style):
         result = CliRunner().invoke(cli, ["openapi", "scan", petstore, "--format", style])
         assert result.exit_code == 0
-        assert "listPets" in result.output
+        assert "list_pets" in result.output
 
     def test_table_renders_banner_warnings_and_hazards(self, cli, petstore):
         result = CliRunner().invoke(cli, ["openapi", "scan", petstore], env={"COLUMNS": "200"})
@@ -242,11 +280,30 @@ class TestOpenapiScan:
         assert "GET /pets" in result.output
         assert "1 warning" in result.output
         assert "cannot be proxied by FE-15b" in result.output
-        assert "createPets" in result.output
+        assert "create_pets" in result.output
 
     def test_hazards_do_not_change_the_exit_code(self, cli, petstore):
         """A partially-understood document is still a successful scan."""
         assert CliRunner().invoke(cli, ["openapi", "scan", petstore]).exit_code == 0
+
+    def test_illegal_id_warning_is_rendered_verbatim(self, cli, tmp_path):
+        """T-OAPI-28: a segment beginning with a digit is not repaired by the
+        toolkit; the module is still listed and its legality warning is
+        rendered like any other scanner warning, byte for byte, exit 0."""
+        path = tmp_path / "openapi.yaml"
+        path.write_text(_TWO_FA, encoding="utf-8")
+
+        table = CliRunner().invoke(cli, ["openapi", "scan", str(path)], env={"COLUMNS": "200"})
+        assert table.exit_code == 0, table.output
+        listing, _, warnings_block = table.output.partition("\n1 warning:\n")
+        assert "v1.2fa.post" in listing
+        # The whole line, so a renderer that ate `[a-z]` as markup would fail.
+        assert warnings_block.splitlines()[0] == "  v1.2fa.post            " + _TWO_FA_WARNING
+
+        payload = _scan_json(cli, str(path))
+        assert payload["modules"][0]["module_id"] == "v1.2fa.post"
+        assert payload["modules"][0]["warnings"] == [_TWO_FA_WARNING]
+        assert payload["hazards"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -262,10 +319,10 @@ class TestOpenapiGenerate:
         assert result.exit_code == 0, result.output
         written = sorted(p.name for p in out.glob("*.binding.yaml"))
         assert written == [
-            "createPets.binding.yaml",
-            "listPets.binding.yaml",
-            "pets.petid.delete.binding.yaml",
-            "showPetById.binding.yaml",
+            "create_pets.binding.yaml",
+            "list_pets.binding.yaml",
+            "pets.pet_id.delete.binding.yaml",
+            "show_pet_by_id.binding.yaml",
         ]
 
     def test_dry_run_lists_paths_and_writes_nothing(self, cli, petstore, tmp_path):
@@ -273,7 +330,7 @@ class TestOpenapiGenerate:
         out = tmp_path / "out"
         result = CliRunner().invoke(cli, ["openapi", "generate", petstore, "-o", str(out), "--dry-run"])
         assert result.exit_code == 0
-        assert "listPets.binding.yaml" in result.output
+        assert "list_pets.binding.yaml" in result.output
         assert not out.exists()
 
     def test_artifact_carries_an_intact_routing_contract(self, cli, petstore, tmp_path):
@@ -283,14 +340,15 @@ class TestOpenapiGenerate:
         out = tmp_path / "out"
         CliRunner().invoke(cli, ["openapi", "generate", petstore, "-o", str(out)])
 
-        raw = yaml.safe_load((out / "createPets.binding.yaml").read_text(encoding="utf-8"))
+        raw = yaml.safe_load((out / "create_pets.binding.yaml").read_text(encoding="utf-8"))
         binding = raw["bindings"][0]
         assert binding["target"] == "POST /pets"
         assert binding["metadata"]["http_method"] == "POST"
         assert binding["metadata"]["url_path"] == "/pets"
+        # The document's raw operationId, verbatim — only the module ID is normalised.
         assert binding["metadata"]["openapi"]["operation_id"] == "createPets"
 
-        reloaded = BindingLoader().load(str(out / "createPets.binding.yaml"))
+        reloaded = BindingLoader().load(str(out / "create_pets.binding.yaml"))
         assert reloaded[0].metadata["http_method"] == "POST"
         assert reloaded[0].metadata["url_path"] == "/pets"
 
@@ -304,19 +362,24 @@ class TestOpenapiGenerate:
         """T-OAPI-21: non-destructive default, matching `apcli init`."""
         out = tmp_path / "out"
         CliRunner().invoke(cli, ["openapi", "generate", petstore, "-o", str(out)])
-        target = out / "listPets.binding.yaml"
+        target = out / "list_pets.binding.yaml"
+        # The first run wrote this very file, so the sentinel below sits on a
+        # name the second run will actually try to write.
+        assert target.is_file()
         target.write_text("SENTINEL", encoding="utf-8")
 
         result = CliRunner().invoke(cli, ["openapi", "generate", petstore, "-o", str(out)])
         assert result.exit_code == 0
         assert "already exists" in result.output
+        assert f"{target} already exists" in result.output
         assert target.read_text(encoding="utf-8") == "SENTINEL"
 
     def test_force_overwrites(self, cli, petstore, tmp_path):
         """T-OAPI-22."""
         out = tmp_path / "out"
         CliRunner().invoke(cli, ["openapi", "generate", petstore, "-o", str(out)])
-        target = out / "listPets.binding.yaml"
+        target = out / "list_pets.binding.yaml"
+        assert target.is_file()
         target.write_text("SENTINEL", encoding="utf-8")
 
         result = CliRunner().invoke(cli, ["openapi", "generate", petstore, "-o", str(out), "--force"])
@@ -392,9 +455,9 @@ class TestOpenapiGenerate:
         gen = CliRunner().invoke(
             cli, ["openapi", "generate", petstore, "-o", str(tmp_path / "out")], env={"COLUMNS": "200"}
         )
-        assert "createPets" in scan.output
+        assert "create_pets" in scan.output
         assert "cannot be proxied by FE-15b" in gen.output
-        assert "createPets" in gen.output
+        assert "create_pets" in gen.output
 
     def test_missing_source_exits_47(self, cli, tmp_path):
         result = CliRunner().invoke(
@@ -531,18 +594,18 @@ class TestOpenapiGenerateDryRunAndVerification:
     def test_dry_run_does_not_list_a_preexisting_file_as_would_write(self, cli, petstore, tmp_path):
         out = tmp_path / "out"
         out.mkdir()
-        (out / "listPets.binding.yaml").write_text("SENTINEL", encoding="utf-8")
+        (out / "list_pets.binding.yaml").write_text("SENTINEL", encoding="utf-8")
 
         result = CliRunner().invoke(cli, ["openapi", "generate", petstore, "-o", str(out), "--dry-run"])
         assert result.exit_code == 0, result.output
         would_write_lines = [line for line in result.output.splitlines() if line.startswith("Would write")]
-        assert not any("listPets.binding.yaml" in line for line in would_write_lines)
-        assert any("createPets.binding.yaml" in line for line in would_write_lines)
+        assert not any("list_pets.binding.yaml" in line for line in would_write_lines)
+        assert any("create_pets.binding.yaml" in line for line in would_write_lines)
         assert "3 file(s) would be written" in result.output
         assert "1 skipped" in result.output
         # --dry-run still writes nothing.
-        assert (out / "listPets.binding.yaml").read_text(encoding="utf-8") == "SENTINEL"
-        assert not (out / "createPets.binding.yaml").exists()
+        assert (out / "list_pets.binding.yaml").read_text(encoding="utf-8") == "SENTINEL"
+        assert not (out / "create_pets.binding.yaml").exists()
 
     def test_verification_failure_warns_and_fails_and_is_excluded_from_count(
         self, cli, petstore, tmp_path, monkeypatch

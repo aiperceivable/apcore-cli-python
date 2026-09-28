@@ -180,7 +180,7 @@ class TestDetectProxyHazards:
         hazards = detect_proxy_hazards(spec, modules)
         assert len(hazards) == 1
         hazard = hazards[0]
-        assert hazard.module_id == "createPets"
+        assert hazard.module_id == "create_pets"
         assert hazard.http_method == "POST"
         assert hazard.url_path == "/pets"
         assert hazard.parameters == ("dryRun", "notify")
@@ -301,7 +301,9 @@ class TestDetectProxyHazards:
     def test_filtered_out_operations_produce_no_hazard(self, tmp_path):
         """An operation with no module is nothing FE-15b could misroute."""
         spec = load_openapi_source(_write(tmp_path, "o.yaml", _PETSTORE_YAML))
-        modules = OpenAPIScanner().scan(spec, include="^listPets$")
+        modules = OpenAPIScanner().scan(spec, include="^list_pets$")
+        # The filter kept GET /pets and dropped POST /pets, the one hazard.
+        assert [m.module_id for m in modules] == ["list_pets"]
         assert detect_proxy_hazards(spec, modules) == []
 
     def test_empty_and_non_dict_specs_are_safe(self):
