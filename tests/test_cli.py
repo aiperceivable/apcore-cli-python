@@ -1351,3 +1351,40 @@ class TestBuildModuleCommandRefResolverErrorTranslation:
         with pytest.raises(SystemExit) as excinfo:
             build_module_command(module_def, executor)
         assert excinfo.value.code == 48
+
+
+@pytest.mark.parametrize("tty", [False, True])
+def test_native_validation_errors_preserve_json_pointers(tty, capsys):
+    import json
+
+    from apcore.errors import SchemaValidationError
+    from apcore.schema import SchemaValidator
+    from pydantic import Field, create_model
+
+    from apcore_cli.cli import _emit_error_json, _emit_error_tty
+
+    item = create_model("ValidationItem", count=(int, ...))
+    model = create_model(
+        "ValidationInput",
+        count=(int, ...),
+        items=(list[item], ...),
+        escaped=(int, Field(alias="a/b~c")),
+    )
+    with pytest.raises(SchemaValidationError) as caught:
+        SchemaValidator().validate_input({"items": [{"count": "bad"}], "a/b~c": "bad"}, model)
+    error = caught.value
+    assert error.code == "SCHEMA_VALIDATION_ERROR"
+    emit = _emit_error_tty if tty else _emit_error_json
+    emit(error, 45)
+    output = capsys.readouterr().err
+    if tty:
+        assert "/items/0/count" in output
+        assert "/a~1b~0c" in output
+        assert "unknown" not in output
+    else:
+        payload = json.loads(output)
+        assert payload["exit_code"] == 45
+        assert payload["details"] == error.details
+        errors = payload["details"]["errors"]
+        assert {entry["path"] for entry in errors} == {"", "/items/0/count", "/a~1b~0c"}
+        assert all(set(entry) == {"path", "keyword", "message"} for entry in errors)

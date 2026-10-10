@@ -45,6 +45,14 @@ class TestInitModule:
         assert len(yaml_files) == 1
         content = yaml_files[0].read_text()
         assert "ops.deploy" in content
+        from apcore_toolkit import BindingLoader
+
+        for strict in (False, True):
+            modules = BindingLoader().load(str(yaml_files[0]), strict=strict)
+            assert len(modules) == 1
+            assert modules[0].module_id == "ops.deploy"
+            assert modules[0].input_schema == {"type": "object", "properties": {}}
+            assert modules[0].output_schema["properties"]["status"] == {"type": "string"}
 
     def test_init_convention_has_cli_group(self, cli, tmp_path):
         runner = CliRunner()

@@ -39,7 +39,15 @@ _BINDING_TEMPLATE = """bindings:
   - module_id: "{module_id}"
     target: "{target}"
     description: "{description}"
-    auto_schema: true
+    input_schema:
+      type: object
+      properties: {{}}
+    output_schema:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
 """
 
 
