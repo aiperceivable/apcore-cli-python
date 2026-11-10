@@ -19,12 +19,12 @@ def test_check_approval_is_exported_at_package_root():
     """
     import apcore_cli
 
-    assert (
-        apcore_cli.check_approval is check_approval
-    ), "apcore_cli.check_approval must alias apcore_cli.approval.check_approval"
-    assert (
-        "check_approval" in apcore_cli.__all__
-    ), "check_approval must be in apcore_cli.__all__ for `from apcore_cli import *`"
+    assert apcore_cli.check_approval is check_approval, (
+        "apcore_cli.check_approval must alias apcore_cli.approval.check_approval"
+    )
+    assert "check_approval" in apcore_cli.__all__, (
+        "check_approval must be in apcore_cli.__all__ for `from apcore_cli import *`"
+    )
 
 
 def test_module_not_found_error_exports_with_deprecated_alias():
@@ -525,9 +525,9 @@ class TestApprovalGateEndToEnd:
         # `force` present: the ACL requires a human and the handler refused.
         with pytest.raises(ApprovalDeniedError):
             app.executor.call("git.push", {"remote": "origin", "force": True})
-        assert seen == [
-            "git.push(force,remote)"
-        ], f"the gate must have consulted the handler exactly once, for the `force`-carrying call, but saw: {seen}"
+        assert seen == ["git.push(force,remote)"], (
+            f"the gate must have consulted the handler exactly once, for the `force`-carrying call, but saw: {seen}"
+        )
 
     def test_a_refusing_handler_blocks_an_annotation_gated_module(self):
         """Same discrimination for the pre-0.28.0 source of the requirement."""
@@ -550,3 +550,35 @@ class TestApprovalGateEndToEnd:
         with pytest.raises(ApprovalDeniedError):
             app.executor.call("danger.wipe", {})
         assert seen == ["danger.wipe"]
+
+
+@pytest.mark.parametrize("handler", ["command", "executor"])
+@pytest.mark.parametrize("annotation_type", ["native", "mapping", "direct"])
+def test_custom_approval_message_from_extra(handler, annotation_type, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from apcore import ModuleAnnotations
+
+    from apcore_cli.approval import CliApprovalHandler
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.delenv("APCORE_CLI_AUTO_APPROVE", raising=False)
+    monkeypatch.setattr("apcore_cli.approval._tty_prompt", lambda *_args: True)
+    extra = {"approval_message": "Confirm the remote change."}
+    expected = extra["approval_message"]
+    if annotation_type == "native":
+        annotations = ModuleAnnotations(requires_approval=True, extra=extra)
+    else:
+        annotations = {"requires_approval": True, "extra": extra}
+        if annotation_type == "direct":
+            expected = "Confirm the direct change."
+            annotations["approval_message"] = expected
+    request = SimpleNamespace(module_id="test.module", annotations=annotations)
+
+    if handler == "command":
+        check_approval(request, auto_approve=False)
+    else:
+        result = asyncio.run(CliApprovalHandler().request_approval(request))
+        assert result.status == "approved"
+
+    assert capsys.readouterr().err.strip() == expected

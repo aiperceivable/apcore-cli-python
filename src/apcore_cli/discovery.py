@@ -18,6 +18,7 @@ import json
 import logging
 import re
 import sys
+from collections.abc import Callable
 from typing import Any
 
 import click
@@ -25,6 +26,7 @@ import click
 import apcore_cli.cli as _cli_module
 from apcore_cli.acl_loader import cli_context, enforce_acl_for_unguarded_path
 from apcore_cli.cli import (
+    _check_sandbox_options,
     _first_failed_exit_code,
     collect_input,
     format_preflight_result,
@@ -299,6 +301,9 @@ def register_exec_command(
     apcli_group: click.Group,
     registry: Any,
     executor: Any,
+    *,
+    print_result: bool = True,
+    on_result: Callable[[Any, str], None] | None = None,
 ) -> None:
     """Register the generic ``exec`` subcommand on the apcli group (FE-13).
 
@@ -358,6 +363,7 @@ def register_exec_command(
         stream: bool,
     ) -> None:
         """Execute a module by ID with JSON input."""
+        _check_sandbox_options(sandbox=sandbox, trace=trace, strategy=strategy, stream=stream, dry_run=dry_run)
         validate_module_id(module_id)
 
         module_def = registry.get_definition(module_id)
@@ -437,8 +443,10 @@ def register_exec_command(
                 result = Sandbox(enabled=sandbox).execute(module_id, merged, executor, cli_context())
 
             # Format output FIRST (canonical order: format → audit on success)
-            fmt = resolve_format(output_format)
-            format_exec_result(result, fmt, fields)
+            if print_result:
+                format_exec_result(result, resolve_format(output_format), fields)
+            if on_result is not None:
+                on_result(result, module_id)
             duration_ms = int((time.monotonic() - audit_start) * 1000)
             _al = _cli_module.get_audit_logger()
             if _al is not None:

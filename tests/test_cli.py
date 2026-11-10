@@ -1388,3 +1388,98 @@ def test_native_validation_errors_preserve_json_pointers(tty, capsys):
         errors = payload["details"]["errors"]
         assert {entry["path"] for entry in errors} == {"", "/items/0/count", "/a~1b~0c"}
         assert all(set(entry) == {"path", "keyword", "message"} for entry in errors)
+
+
+@pytest.mark.parametrize("args", [["math", "add"], ["apcli", "exec", "math.add"]])
+def test_embedded_result_from_factory(args):
+    from click.testing import CliRunner
+
+    from apcore_cli.factory import create_cli
+
+    module_def = _make_mock_module_def()
+    registry = _make_mock_registry(["math.add"])
+    registry.get_definition.return_value = module_def
+    payload = {"sum": 3, "details": {"count": 2}}
+    on_result = MagicMock()
+    cli = create_cli(
+        registry=registry,
+        executor=_make_mock_executor(payload),
+        print_result=False,
+        on_result=on_result,
+    )
+
+    result = CliRunner().invoke(cli, [*args, "--format", "json", "--fields", "sum"])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == ""
+    on_result.assert_called_once_with(payload, "math.add")
+
+
+def test_embedded_result_from_single_command():
+    from click.testing import CliRunner
+
+    payload = {"sum": 3}
+    on_result = MagicMock()
+    cmd = build_module_command(
+        _make_mock_module_def(),
+        _make_mock_executor(payload),
+        print_result=False,
+        on_result=on_result,
+    )
+
+    result = CliRunner().invoke(cmd, [])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == ""
+    on_result.assert_called_once_with(payload, "math.add")
+
+
+@pytest.mark.parametrize("args", [["math", "add"], ["apcli", "exec", "math.add"]])
+@pytest.mark.parametrize("extra", [["--trace"], ["--strategy", "standard"], ["--stream"]])
+def test_sandbox_rejects_options_that_require_in_process_execution(args, extra, monkeypatch):
+    from apcore import ModuleAnnotations
+    from click.testing import CliRunner
+
+    from apcore_cli.factory import create_cli
+
+    async def stream(*_args):
+        yield {"sum": 3}
+
+    module_def = _make_mock_module_def()
+    module_def.annotations = ModuleAnnotations(streaming=True)
+    registry = _make_mock_registry(["math.add"])
+    registry.get_definition.return_value = module_def
+    executor = _make_mock_executor({"sum": 3})
+    executor.call_with_trace.return_value = ({"sum": 3}, MagicMock(steps=[]))
+    executor.stream.side_effect = stream
+    sandbox_execute = MagicMock(return_value={"sum": 3})
+    monkeypatch.setattr("apcore_cli.security.sandbox.Sandbox.execute", sandbox_execute)
+    cli = create_cli(registry=registry, executor=executor)
+
+    result = CliRunner().invoke(cli, [*args, "--sandbox", *extra])
+
+    assert result.exit_code == 2, result.output
+    assert "--sandbox cannot be combined with" in result.stderr
+    executor.call.assert_not_called()
+    executor.call_with_trace.assert_not_called()
+    executor.stream.assert_not_called()
+    sandbox_execute.assert_not_called()
+
+
+def test_embedded_table_trace_remains_on_stderr_when_print_disabled(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    payload = {"sum": 3}
+    executor = _make_mock_executor()
+    trace = SimpleNamespace(strategy_name="standard", total_duration_ms=4.2, steps=[])
+    executor.call_with_trace.return_value = (payload, trace)
+    on_result = MagicMock()
+    cmd = build_module_command(_make_mock_module_def(), executor, print_result=False, on_result=on_result)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+
+    cmd.main(["--trace", "--format", "table"], standalone_mode=False)
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Pipeline Trace (strategy: standard, 0 steps, 4.2ms)" in captured.err
+    on_result.assert_called_once_with(payload, "math.add")

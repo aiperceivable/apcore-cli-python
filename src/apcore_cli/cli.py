@@ -7,6 +7,7 @@ import logging
 import re
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -105,6 +106,9 @@ class _LazyGroup(click.Group):
         executor: Any,
         help_text_max_length: int = 1000,
         extensions_root: str | None = None,
+        *,
+        print_result: bool = True,
+        on_result: Callable[[Any, str], None] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -112,6 +116,8 @@ class _LazyGroup(click.Group):
         self._executor = executor
         self._help_text_max_length = help_text_max_length
         self._extensions_root = extensions_root
+        self._print_result = print_result
+        self._on_result = on_result
         self._cmd_cache: dict[str, click.Command] = {}
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -130,6 +136,8 @@ class _LazyGroup(click.Group):
             help_text_max_length=self._help_text_max_length,
             cmd_name=cmd_name,
             extensions_root=self._extensions_root,
+            print_result=self._print_result,
+            on_result=self._on_result,
         )
         self._cmd_cache[cmd_name] = cmd
         return cmd
@@ -144,6 +152,9 @@ class LazyModuleGroup(click.Group):
         executor: Executor,
         help_text_max_length: int = 1000,
         extensions_root: str | None = None,
+        *,
+        print_result: bool = True,
+        on_result: Callable[[Any, str], None] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -151,6 +162,8 @@ class LazyModuleGroup(click.Group):
         self._executor = executor
         self._help_text_max_length = help_text_max_length
         self._extensions_root = extensions_root
+        self._print_result = print_result
+        self._on_result = on_result
         self._module_cache: dict[str, click.Command] = {}
         # alias → canonical module_id (populated lazily)
         self._alias_map: dict[str, str] = {}
@@ -218,6 +231,8 @@ class LazyModuleGroup(click.Group):
             help_text_max_length=self._help_text_max_length,
             cmd_name=cmd_name,
             extensions_root=self._extensions_root,
+            print_result=self._print_result,
+            on_result=self._on_result,
         )
         self._module_cache[cmd_name] = cmd
         return cmd
@@ -348,6 +363,8 @@ class GroupedModuleGroup(LazyModuleGroup):
                 executor=self._executor,
                 help_text_max_length=self._help_text_max_length,
                 extensions_root=self._extensions_root,
+                print_result=self._print_result,
+                on_result=self._on_result,
                 name=cmd_name,
             )
             self._group_cache[cmd_name] = grp
@@ -364,6 +381,8 @@ class GroupedModuleGroup(LazyModuleGroup):
                 help_text_max_length=self._help_text_max_length,
                 cmd_name=cmd_name,
                 extensions_root=self._extensions_root,
+                print_result=self._print_result,
+                on_result=self._on_result,
             )
             self._module_cache[cmd_name] = cmd
             return cmd
@@ -499,18 +518,28 @@ def _get_module_id(module_def: ModuleDescriptor) -> str:
     return module_def.module_id
 
 
+def _check_sandbox_options(*, sandbox: bool, trace: bool, strategy: str | None, stream: bool, dry_run: bool) -> None:
+    if sandbox and not dry_run and (trace or strategy is not None or stream):
+        raise click.UsageError("--sandbox cannot be combined with --trace, --strategy, or --stream.")
+
+
 def build_module_command(
     module_def: ModuleDescriptor,
     executor: Executor,
     help_text_max_length: int = 1000,
     cmd_name: str | None = None,
     extensions_root: str | None = None,
+    *,
+    print_result: bool = True,
+    on_result: Callable[[Any, str], None] | None = None,
 ) -> click.Command:
     """Build a Click command from an apcore module definition.
 
     Generates Click options from the module's input_schema, wires up
     STDIN input collection, schema validation, approval gating,
-    execution, audit logging, and output formatting.
+    execution, audit logging, and output formatting. For a successful
+    non-streaming call, ``print_result`` controls stdout and ``on_result``
+    receives the raw result and canonical module ID.
     """
     # Resolve display overlay fields (§5.13)
     display = _get_display(module_def)
@@ -583,6 +612,10 @@ def build_module_command(
         strategy_name = kwargs.pop("strategy", None)
         approval_timeout = kwargs.pop("approval_timeout", None) or 60
         approval_token = kwargs.pop("approval_token", None)
+
+        _check_sandbox_options(
+            sandbox=sandbox_flag, trace=trace_flag, strategy=strategy_name, stream=stream_flag, dry_run=dry_run
+        )
 
         merged: dict[str, Any] = {}
         audit_start = time.monotonic()
@@ -729,28 +762,30 @@ def build_module_command(
 
                 # Print result (before audit so a formatter raise doesn't double-log)
                 if output_format == "json" or not sys.stdout.isatty():
-                    # Merge _trace into JSON output
-                    trace_data = {
-                        "strategy": trace.strategy_name,
-                        "total_duration_ms": trace.total_duration_ms,
-                        "success": trace.success,
-                        "steps": [
-                            {
-                                "name": s.name,
-                                "duration_ms": s.duration_ms,
-                                "skipped": s.skipped,
-                                **({"skip_reason": s.skip_reason} if s.skipped else {}),
-                            }
-                            for s in trace.steps
-                        ],
-                    }
-                    if isinstance(result, dict):
-                        output = {**result, "_trace": trace_data}
-                    else:
-                        output = {"result": result, "_trace": trace_data}
-                    click.echo(json.dumps(output, indent=2, default=str))
+                    if print_result:
+                        # Merge _trace into JSON output
+                        trace_data = {
+                            "strategy": trace.strategy_name,
+                            "total_duration_ms": trace.total_duration_ms,
+                            "success": trace.success,
+                            "steps": [
+                                {
+                                    "name": s.name,
+                                    "duration_ms": s.duration_ms,
+                                    "skipped": s.skipped,
+                                    **({"skip_reason": s.skip_reason} if s.skipped else {}),
+                                }
+                                for s in trace.steps
+                            ],
+                        }
+                        if isinstance(result, dict):
+                            output = {**result, "_trace": trace_data}
+                        else:
+                            output = {"result": result, "_trace": trace_data}
+                        click.echo(json.dumps(output, indent=2, default=str))
                 else:
-                    format_exec_result(result, output_format, fields=output_fields)
+                    if print_result:
+                        format_exec_result(result, output_format, fields=output_fields)
                     # Print trace to stderr
                     step_count = len(trace.steps)
                     click.echo(
@@ -769,6 +804,9 @@ def build_module_command(
                             reason = ""
                         click.echo(f"  {sym} {s.name:<24} {dur:>8}{reason}", err=True)
 
+                if on_result is not None:
+                    on_result(result, module_id)
+
                 # Audit after formatting — formatter raise will not produce a
                 # duplicate success+error pair
                 audit_logger = get_audit_logger()
@@ -781,11 +819,7 @@ def build_module_command(
             _acl_ctx = _cli_acl_context()
             if strategy_name and hasattr(executor, "call_with_trace"):
                 warn_if_acl_bypassed(strategy_name)
-                if sandbox_flag:
-                    # Sandbox mode: delegate to subprocess (strategy not available in sandbox)
-                    logger.warning("--sandbox ignores --strategy; sandboxed execution uses default strategy.")
-                    result = sandbox.execute(module_id, merged, executor, _acl_ctx)
-                elif _acl_ctx is not None:
+                if _acl_ctx is not None:
                     result, _trace = executor.call_with_trace(
                         module_id,
                         merged,
@@ -816,7 +850,10 @@ def build_module_command(
 
             # 6. Format and print result (before audit so a formatter raise doesn't
             #    produce a spurious success entry followed by an error entry)
-            format_exec_result(result, output_format, fields=output_fields)
+            if print_result:
+                format_exec_result(result, output_format, fields=output_fields)
+            if on_result is not None:
+                on_result(result, module_id)
 
             # 7. Audit log (success) — only reached if formatting did not raise
             audit_logger = get_audit_logger()

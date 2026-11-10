@@ -44,6 +44,14 @@ def _get_annotation(annotations: Any, key: str, default: Any = None) -> Any:
     return getattr(annotations, key, default)
 
 
+def _get_approval_message(annotations: Any, module_id: str) -> str:
+    extra = _get_annotation(annotations, "extra")
+    message = _get_annotation(annotations, "approval_message", _get_annotation(extra, "approval_message"))
+    if isinstance(message, str) and message:
+        return message
+    return f"Module '{module_id}' requires approval to execute."
+
+
 def _read_timeout_from_env() -> int | None:
     """Parse APCORE_CLI_APPROVAL_TIMEOUT, warn on malformed, return None on absent/invalid.
 
@@ -168,8 +176,7 @@ class CliApprovalHandler:
 
         # TTY prompt
         annotations = getattr(request, "annotations", None) or {}
-        extra = getattr(annotations, "extra", {}) if not isinstance(annotations, dict) else annotations
-        message = extra.get("approval_message") or f"Module '{module_id}' requires approval to execute."
+        message = _get_approval_message(annotations, module_id)
 
         click.echo(message, err=True)
         try:
@@ -281,9 +288,7 @@ def _prompt_with_timeout(module_def: Any, timeout: int = 60) -> None:
 
     module_id = getattr(module_def, "module_id", getattr(module_def, "canonical_id", "unknown"))
     annotations = getattr(module_def, "annotations", None) or {}
-    message = _get_annotation(annotations, "approval_message", None)
-    if message is None:
-        message = f"Module '{module_id}' requires approval to execute."
+    message = _get_approval_message(annotations, module_id)
 
     click.echo(message, err=True)
 

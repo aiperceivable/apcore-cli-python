@@ -119,6 +119,35 @@ cli(standalone_mode=True)
 cli = create_cli(registry=registry, executor=executor, prog_name="myapp")
 ```
 
+#### Render a module result in the host
+
+```python
+import json
+
+import click
+from apcore_cli import build_module_command
+
+
+def render_result(result, module_id):
+    click.echo(json.dumps({"module_id": module_id, "result": result}, default=str))
+
+
+status = build_module_command(
+    descriptor,
+    executor,
+    cmd_name="status",
+    print_result=False,
+    on_result=render_result,
+)
+status()
+```
+
+The callback receives the raw result and canonical module ID after a successful
+non-streaming call. Pass the same keyword options to `create_cli()` for
+generated module commands and `apcli exec`. Result printing defaults to
+enabled. The print setting leaves preflight reports, streaming output, errors,
+and terminal traces on their own output paths.
+
 #### Python API
 
 The `apcore_cli` package re-exports the following public surface (see [`src/apcore_cli/__init__.py`](src/apcore_cli/__init__.py) for the canonical `__all__`):
@@ -126,7 +155,7 @@ The `apcore_cli` package re-exports the following public surface (see [`src/apco
 | Export | Description |
 |--------|-------------|
 | `__version__` | Package version string |
-| `create_cli(...)` | Factory that builds a ready-to-invoke `click.Group`. See the [`create_cli` reference](https://github.com/aiperceivable/apcore-cli) in the docs site for the full 14-parameter signature: `extensions_dir`, `prog_name`, `commands_dir`, `binding_path`, `registry`, `executor`, `extra_commands`, `app`, `expose`, **`apcli`** (FE-13 P0 break), `allowed_prefixes`, `version`, `description`, **`builtin_group_name`** (default `"apcli"`, v0.8.0+). |
+| `create_cli(...)` | Factory that builds a ready-to-invoke `click.Group`. Accepts `print_result` and `on_result` for embedded result handling. See the [shared dispatcher spec](https://github.com/aiperceivable/apcore-cli/blob/main/docs/features/core-dispatcher.md) for the embedding contract. |
 | `ApcliGroup`, `ApcliMode`, `RESERVED_GROUP_NAMES` | FE-13 built-in `apcli` group surface (P0 break in v0.8.0). |
 | `ExposureFilter` | Declarative filter controlling which modules are exposed by the CLI (FE-12). |
 | `CliApprovalHandler`, `check_approval` | TTY-aware HITL approval handler / helper (FE-11). |

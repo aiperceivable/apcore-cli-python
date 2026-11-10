@@ -5,6 +5,21 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-11-10
+
+### Added
+
+- Embedded hosts can use `print_result=False` and `on_result(result, module_id)` on `create_cli()`, `build_module_command()`, and `register_exec_command()` to render raw non-streaming results themselves.
+
+### Changed
+
+- Module execution rejects `--sandbox` combined with `--trace`, `--strategy`, or `--stream` with exit code 2. Omit those options for sandboxed execution.
+
+### Fixed
+
+- Terminal trace diagnostics remain on stderr when result printing is disabled.
+- The CLI and executor approval handler read custom prompts from `annotations.extra["approval_message"]` when the direct annotation is absent.
+
 ## [0.12.3] - 2026-10-10
 
 ### Changed

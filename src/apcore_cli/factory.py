@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from collections.abc import Callable
+from functools import partial
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
 from typing import Any
@@ -96,8 +98,14 @@ def create_cli(
     description: str | None = None,
     builtin_group_name: str = "apcli",
     acl: str | Any | None = None,
+    *,
+    print_result: bool = True,
+    on_result: Callable[[Any, str], None] | None = None,
 ) -> click.Group:
     """Create the CLI application.
+
+    For successful non-streaming module calls, ``print_result`` controls stdout
+    and ``on_result`` receives the raw result and canonical module ID.
 
     Args:
         extensions_dir: Override for extensions directory.
@@ -471,6 +479,8 @@ def create_cli(
         help_text_max_length=help_text_max_length,
         exposure_filter=exposure_filter,
         extensions_root=ext_dir,
+        print_result=print_result,
+        on_result=on_result,
         name=prog_name,
         help=_resolved_help,
     )
@@ -627,6 +637,8 @@ def create_cli(
         prog_name,
         acl=resolved_acl,
         acl_source=acl_source,
+        print_result=print_result,
+        on_result=on_result,
     )
 
     # Root-level --help --man support (stays at root per spec §4.1).
@@ -800,6 +812,9 @@ def _register_apcli_subcommands(
     prog_name: str,
     acl: Any | None = None,
     acl_source: str | None = None,
+    *,
+    print_result: bool = True,
+    on_result: Callable[[Any, str], None] | None = None,
 ) -> None:
     """Register the 15 canonical apcli subcommands, filtered by visibility.
 
@@ -816,12 +831,16 @@ def _register_apcli_subcommands(
     # probing here keeps `<cli> apcli --help` lean in the common case.
     system_available = executor is not None and _system_modules_available(executor)
 
+    register_exec = partial(
+        register_exec_command, apcli_group, registry, executor, print_result=print_result, on_result=on_result
+    )
+
     # Each entry: (name, requires_executor, callable that registers the
     # subcommand on apcli_group). The apcli_group is captured per entry.
     registrars: list[tuple[str, bool, Any]] = [
         ("list", False, lambda: register_list_command(apcli_group, registry, exposure_filter)),
         ("describe", False, lambda: register_describe_command(apcli_group, registry)),
-        ("exec", True, lambda: register_exec_command(apcli_group, registry, executor)),
+        ("exec", True, register_exec),
         ("validate", True, lambda: register_validate_command(apcli_group, registry, executor)),
         ("init", False, lambda: register_init_command(apcli_group)),
         ("health", True, lambda: register_health_command(apcli_group, executor) if system_available else None),
