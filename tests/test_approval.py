@@ -19,12 +19,12 @@ def test_check_approval_is_exported_at_package_root():
     """
     import apcore_cli
 
-    assert apcore_cli.check_approval is check_approval, (
-        "apcore_cli.check_approval must alias apcore_cli.approval.check_approval"
-    )
-    assert "check_approval" in apcore_cli.__all__, (
-        "check_approval must be in apcore_cli.__all__ for `from apcore_cli import *`"
-    )
+    assert (
+        apcore_cli.check_approval is check_approval
+    ), "apcore_cli.check_approval must alias apcore_cli.approval.check_approval"
+    assert (
+        "check_approval" in apcore_cli.__all__
+    ), "check_approval must be in apcore_cli.__all__ for `from apcore_cli import *`"
 
 
 def test_module_not_found_error_exports_with_deprecated_alias():
@@ -525,9 +525,9 @@ class TestApprovalGateEndToEnd:
         # `force` present: the ACL requires a human and the handler refused.
         with pytest.raises(ApprovalDeniedError):
             app.executor.call("git.push", {"remote": "origin", "force": True})
-        assert seen == ["git.push(force,remote)"], (
-            f"the gate must have consulted the handler exactly once, for the `force`-carrying call, but saw: {seen}"
-        )
+        assert seen == [
+            "git.push(force,remote)"
+        ], f"the gate must have consulted the handler exactly once, for the `force`-carrying call, but saw: {seen}"
 
     def test_a_refusing_handler_blocks_an_annotation_gated_module(self):
         """Same discrimination for the pre-0.28.0 source of the requirement."""
