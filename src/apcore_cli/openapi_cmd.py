@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +33,7 @@ from apcore_toolkit import format_csv, format_jsonl, format_modules
 from rich.console import Console
 from rich.table import Table
 
+from apcore_cli.exit import exit_with
 from apcore_cli.openapi_source import detect_proxy_hazards, load_openapi_source
 
 logger = logging.getLogger("apcore_cli.openapi")
@@ -101,7 +101,7 @@ def _compile_or_exit(pattern: str | None, flag: str) -> None:
         re.compile(pattern)
     except re.error as exc:
         click.echo(f"Error: Invalid regex for --{flag}: {exc}", err=True)
-        sys.exit(EXIT_INVALID_INPUT)
+        exit_with(EXIT_INVALID_INPUT)
 
 
 def _scan_or_exit(
@@ -129,7 +129,7 @@ def _scan_or_exit(
         )
     except ValueError as exc:
         click.echo(f"Error: {exc}", err=True)
-        sys.exit(EXIT_SOURCE_ERROR)
+        exit_with(EXIT_SOURCE_ERROR)
 
 
 def _module_rows(modules: list[Any]) -> list[dict[str, Any]]:
@@ -361,7 +361,7 @@ def register_openapi_command(apcli_group: click.Group) -> None:
         modules = _scan_or_exit(spec, include=include, exclude=exclude, prefix=prefix, no_deprecated=no_deprecated)
         hazards = detect_proxy_hazards(spec, modules)
         _render_scan(modules, hazards, spec, source, output_format)
-        sys.exit(EXIT_OK)
+        exit_with(EXIT_OK)
 
     # -- generate -----------------------------------------------------------
 
@@ -451,7 +451,7 @@ def register_openapi_command(apcli_group: click.Group) -> None:
                 + (f" {len(skipped_paths)} skipped." if skipped_paths else "")
             )
             _echo_hazards(hazards)
-            sys.exit(EXIT_OK)
+            exit_with(EXIT_OK)
 
         results: list[Any] = []
         if to_write:
@@ -461,10 +461,10 @@ def register_openapi_command(apcli_group: click.Group) -> None:
                 results = YAMLWriter().write(to_write, str(out_path), verify=True)
             except OSError as exc:
                 click.echo(f"Error: Cannot write to '{out_path}': {exc}", err=True)
-                sys.exit(EXIT_WRITE_ERROR)
+                exit_with(EXIT_WRITE_ERROR)
             except Exception as exc:
                 click.echo(f"Error: Failed to generate artifacts in '{out_path}': {exc}", err=True)
-                sys.exit(EXIT_WRITE_ERROR)
+                exit_with(EXIT_WRITE_ERROR)
 
         # `result.path` is set even when the write did not actually succeed
         # (e.g. a pre-write symlink-escape skip) — `verification_error` is the
@@ -491,7 +491,7 @@ def register_openapi_command(apcli_group: click.Group) -> None:
         # A write the user asked for and did not get is a real fault, unlike
         # a skipped file (the documented non-destructive default) — mirrors
         # TypeScript's exit on `results.filter(r => r.verificationError !== null)`.
-        sys.exit(EXIT_WRITE_ERROR if failures else EXIT_OK)
+        exit_with(EXIT_WRITE_ERROR if failures else EXIT_OK)
 
     _ = (openapi_scan, openapi_generate)
 

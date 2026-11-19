@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Any
 
 import click
+
+from apcore_cli.exit import exit_with
 
 logger = logging.getLogger("apcore_cli.schema_parser")
 
@@ -143,7 +144,7 @@ def schema_to_click_options(schema: dict, max_help_length: int = 1000) -> list[c
                 "conflicts with a built-in CLI option. Rename the property.",
                 err=True,
             )
-            sys.exit(48)
+            exit_with(48)
 
         flag_name = "--" + prop_name.replace("_", "-")
 
@@ -154,7 +155,7 @@ def schema_to_click_options(schema: dict, max_help_length: int = 1000) -> list[c
                 f"'{flag_names[flag_name]}' both map to '{flag_name}'.",
                 err=True,
             )
-            sys.exit(48)
+            exit_with(48)
 
         flag_names[flag_name] = prop_name
 
@@ -175,7 +176,7 @@ def schema_to_click_options(schema: dict, max_help_length: int = 1000) -> list[c
                     f"'{flag_names[no_flag]}'.",
                     err=True,
                 )
-                sys.exit(48)
+                exit_with(48)
             flag_names[no_flag] = prop_name
         is_required = prop_name in required_list
         _help_base = _extract_help(prop_schema, max_length=max_help_length)

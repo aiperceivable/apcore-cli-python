@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import partial
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _get_version
@@ -47,6 +47,7 @@ from apcore_cli.discovery import (
     register_list_command,
     register_validate_command,
 )
+from apcore_cli.exit import exit_with
 from apcore_cli.exposure import ExposureFilter
 from apcore_cli.init_cmd import register_init_command
 from apcore_cli.openapi_cmd import register_openapi_command
@@ -101,11 +102,19 @@ def create_cli(
     *,
     print_result: bool = True,
     on_result: Callable[[Any, str], None] | None = None,
+    on_error: Callable[[Any], None] | None = None,
+    exit_codes: Mapping[str, int] | None = None,
+    exit: Callable[[int], None] | None = None,
+    error_stream: Any = None,
+    extra_input: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
 ) -> click.Group:
     """Create the CLI application.
 
     For successful non-streaming module calls, ``print_result`` controls stdout
-    and ``on_result`` receives the raw result and canonical module ID.
+    and ``on_result`` receives the raw result and canonical module ID. Embedded
+    hosts can own the failure path with ``on_error``, ``exit_codes``,
+    ``exit``, ``error_stream`` and ``extra_input``; see
+    :func:`apcore_cli.cli.build_module_command`.
 
     Args:
         extensions_dir: Override for extensions directory.
@@ -275,7 +284,7 @@ def create_cli(
                     f"Error: Failed to initialize executor from provided registry: {e}",
                     err=True,
                 )
-                sys.exit(EXIT_CONFIG_NOT_FOUND)
+                exit_with(EXIT_CONFIG_NOT_FOUND)
         else:
             # app= was provided but registry is empty — run discovery into app.registry.
             ext_dir_missing = not os.path.exists(ext_dir)
@@ -287,14 +296,14 @@ def create_cli(
                     " Set APCORE_EXTENSIONS_ROOT or verify the path.",
                     err=True,
                 )
-                sys.exit(EXIT_CONFIG_NOT_FOUND)
+                exit_with(EXIT_CONFIG_NOT_FOUND)
 
             if ext_dir_unreadable:
                 click.echo(
                     f"Error: Cannot read extensions directory: '{ext_dir}'. Check permissions.",
                     err=True,
                 )
-                sys.exit(EXIT_CONFIG_NOT_FOUND)
+                exit_with(EXIT_CONFIG_NOT_FOUND)
 
             try:
                 logger.debug("Loading extensions from %s (into app.registry)", ext_dir)
@@ -310,7 +319,7 @@ def create_cli(
                     executor = _Executor(registry)
             except Exception as e:
                 click.echo(f"Error: Failed to initialize executor from app.registry: {e}", err=True)
-                sys.exit(EXIT_CONFIG_NOT_FOUND)
+                exit_with(EXIT_CONFIG_NOT_FOUND)
     else:
         # Standard path: discover modules from filesystem.
         ext_dir_missing = not os.path.exists(ext_dir)
@@ -321,14 +330,14 @@ def create_cli(
                 f"Error: Extensions directory not found: '{ext_dir}'. Set APCORE_EXTENSIONS_ROOT or verify the path.",
                 err=True,
             )
-            sys.exit(EXIT_CONFIG_NOT_FOUND)
+            exit_with(EXIT_CONFIG_NOT_FOUND)
 
         if ext_dir_unreadable:
             click.echo(
                 f"Error: Cannot read extensions directory: '{ext_dir}'. Check permissions.",
                 err=True,
             )
-            sys.exit(EXIT_CONFIG_NOT_FOUND)
+            exit_with(EXIT_CONFIG_NOT_FOUND)
 
         try:
             from apcore import Executor as _Executor
@@ -359,7 +368,7 @@ def create_cli(
             executor = _Executor(registry)
         except Exception as e:
             click.echo(f"Error: Failed to initialize registry: {e}", err=True)
-            sys.exit(EXIT_CONFIG_NOT_FOUND)
+            exit_with(EXIT_CONFIG_NOT_FOUND)
 
     # Initialize audit logger
     try:
@@ -462,11 +471,11 @@ def create_cli(
             raise TypeError(f"apcli: expected bool, dict, ApcliGroup, or None; got {type(apcli).__name__}")
     except TypeError as e:
         click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        exit_with(2)
     except ValueError as e:
         # ApcliGroup name validation rejected `builtin_group_name`.
         click.echo(f"Error: {e}", err=True)
-        sys.exit(2)
+        exit_with(2)
 
     # Issue #19: when used as a library, do not leak "apcore" framing into
     # the host CLI's --help. Default to a neutral, prog_name-derived string.
@@ -481,6 +490,11 @@ def create_cli(
         extensions_root=ext_dir,
         print_result=print_result,
         on_result=on_result,
+        on_error=on_error,
+        exit_codes=exit_codes,
+        exit=exit,
+        error_stream=error_stream,
+        extra_input=extra_input,
         name=prog_name,
         help=_resolved_help,
     )
@@ -639,6 +653,11 @@ def create_cli(
         acl_source=acl_source,
         print_result=print_result,
         on_result=on_result,
+        on_error=on_error,
+        exit_codes=exit_codes,
+        exit=exit,
+        error_stream=error_stream,
+        extra_input=extra_input,
     )
 
     # Root-level --help --man support (stays at root per spec §4.1).
@@ -794,10 +813,10 @@ def _resolve_cli_acl(
         loaded = load_cli_acl(root, audit_enabled=audit_enabled, include_denied=include_denied)
     except ConfigNotFoundError as e:
         click.echo(f"Error: ACL file not found: {getattr(e, 'config_path', None) or source or root}", err=True)
-        sys.exit(EXIT_CONFIG_NOT_FOUND)
+        exit_with(EXIT_CONFIG_NOT_FOUND)
     except ACLRuleError as e:
         click.echo(f"Error: Invalid ACL configuration in {source or root}: {e}", err=True)
-        sys.exit(EXIT_CONFIG_NOT_FOUND)
+        exit_with(EXIT_CONFIG_NOT_FOUND)
     if loaded is None:
         return None, None
     return loaded, source
@@ -815,6 +834,11 @@ def _register_apcli_subcommands(
     *,
     print_result: bool = True,
     on_result: Callable[[Any, str], None] | None = None,
+    on_error: Callable[[Any], None] | None = None,
+    exit_codes: Mapping[str, int] | None = None,
+    exit: Callable[[int], None] | None = None,
+    error_stream: Any = None,
+    extra_input: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
 ) -> None:
     """Register the 15 canonical apcli subcommands, filtered by visibility.
 
@@ -832,7 +856,17 @@ def _register_apcli_subcommands(
     system_available = executor is not None and _system_modules_available(executor)
 
     register_exec = partial(
-        register_exec_command, apcli_group, registry, executor, print_result=print_result, on_result=on_result
+        register_exec_command,
+        apcli_group,
+        registry,
+        executor,
+        print_result=print_result,
+        on_result=on_result,
+        on_error=on_error,
+        exit_codes=exit_codes,
+        exit=exit,
+        error_stream=error_stream,
+        extra_input=extra_input,
     )
 
     # Each entry: (name, requires_executor, callable that registers the

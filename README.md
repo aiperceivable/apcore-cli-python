@@ -148,6 +148,40 @@ generated module commands and `apcli exec`. Result printing defaults to
 enabled. The print setting leaves preflight reports, streaming output, errors,
 and terminal traces on their own output paths.
 
+#### Own the failure path
+
+Validation still runs before `execute`, but the resulting failure no longer
+terminates the host behind its back:
+
+```python
+from apcore_cli import ModuleErrorContext
+
+def _exit(code: int) -> None:
+    raise HostCliExit(code)
+
+status = build_module_command(
+    descriptor,
+    executor,
+    cmd_name="status",
+    exit_codes={"SCHEMA_VALIDATION_ERROR": 2},
+    on_error=lambda ctx: log.warning("%s failed with %s", ctx.module_id, ctx.code),
+    exit=_exit,
+    error_stream="stdout",           # agent contract: one document on stdout
+    extra_input=lambda: {"json": True},  # program-level flags merged pre-validation
+)
+```
+
+`on_error` receives a `ModuleErrorContext(error, exit_code, code, module_id)`.
+`exit` defaults to the process-wide `set_exit_handler()` handler, which by
+default raises `SystemExit`; install one handler for the whole library:
+
+```python
+from apcore_cli import set_exit_handler
+
+set_exit_handler(lambda code: (_ for _ in ()).throw(HostCliExit(code)))
+```
+
+
 #### Python API
 
 The `apcore_cli` package re-exports the following public surface (see [`src/apcore_cli/__init__.py`](src/apcore_cli/__init__.py) for the canonical `__all__`):

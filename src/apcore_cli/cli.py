@@ -7,7 +7,7 @@ import logging
 import re
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,10 +19,25 @@ from apcore_cli.acl_loader import enforce_acl_for_unguarded_path as _enforce_acl
 from apcore_cli.approval import check_approval
 from apcore_cli.builtin_group import RESERVED_GROUP_NAMES as RESERVED_GROUP_NAMES  # noqa: PLC0414
 from apcore_cli.display_helpers import get_display as _get_display
+from apcore_cli.exit import exit_with
 from apcore_cli.exit_codes import (
     APCORE_ERROR_CODE_MAP,
+    EXIT_INVALID_INPUT,
     EXIT_SCHEMA_CIRCULAR_REF,
     EXIT_SCHEMA_VALIDATION_ERROR,
+)
+from apcore_cli.module_errors import (
+    ErrorStream,
+    InvalidCliInputError,
+    ModuleErrorContext,
+    handle_module_error,
+    resolve_exit_code,
+)
+from apcore_cli.module_errors import (
+    emit_error_json as _emit_error_json_impl,
+)
+from apcore_cli.module_errors import (
+    emit_error_tty as _emit_error_tty_impl,
 )
 from apcore_cli.output import format_exec_result
 from apcore_cli.ref_resolver import (
@@ -94,7 +109,7 @@ def set_docs_url(url: str | None) -> None:
         set_docs_url("https://docs.apcore.dev/cli")
     """
     global _docs_url
-    _docs_url = url
+    _docs_url = url.rstrip("/") if url is not None else None
 
 
 class _LazyGroup(click.Group):
@@ -109,6 +124,11 @@ class _LazyGroup(click.Group):
         *,
         print_result: bool = True,
         on_result: Callable[[Any, str], None] | None = None,
+        on_error: Callable[[ModuleErrorContext], None] | None = None,
+        exit_codes: Mapping[str, int] | None = None,
+        exit: Callable[[int], None] | None = None,
+        error_stream: ErrorStream = None,
+        extra_input: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -118,6 +138,11 @@ class _LazyGroup(click.Group):
         self._extensions_root = extensions_root
         self._print_result = print_result
         self._on_result = on_result
+        self._on_error = on_error
+        self._exit_codes = exit_codes
+        self._exit = exit
+        self._error_stream = error_stream
+        self._extra_input = extra_input
         self._cmd_cache: dict[str, click.Command] = {}
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -138,6 +163,11 @@ class _LazyGroup(click.Group):
             extensions_root=self._extensions_root,
             print_result=self._print_result,
             on_result=self._on_result,
+            on_error=self._on_error,
+            exit_codes=self._exit_codes,
+            exit=self._exit,
+            error_stream=self._error_stream,
+            extra_input=self._extra_input,
         )
         self._cmd_cache[cmd_name] = cmd
         return cmd
@@ -155,6 +185,11 @@ class LazyModuleGroup(click.Group):
         *,
         print_result: bool = True,
         on_result: Callable[[Any, str], None] | None = None,
+        on_error: Callable[[ModuleErrorContext], None] | None = None,
+        exit_codes: Mapping[str, int] | None = None,
+        exit: Callable[[int], None] | None = None,
+        error_stream: ErrorStream = None,
+        extra_input: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -164,6 +199,11 @@ class LazyModuleGroup(click.Group):
         self._extensions_root = extensions_root
         self._print_result = print_result
         self._on_result = on_result
+        self._on_error = on_error
+        self._exit_codes = exit_codes
+        self._exit = exit
+        self._error_stream = error_stream
+        self._extra_input = extra_input
         self._module_cache: dict[str, click.Command] = {}
         # alias → canonical module_id (populated lazily)
         self._alias_map: dict[str, str] = {}
@@ -233,6 +273,11 @@ class LazyModuleGroup(click.Group):
             extensions_root=self._extensions_root,
             print_result=self._print_result,
             on_result=self._on_result,
+            on_error=self._on_error,
+            exit_codes=self._exit_codes,
+            exit=self._exit,
+            error_stream=self._error_stream,
+            extra_input=self._extra_input,
         )
         self._module_cache[cmd_name] = cmd
         return cmd
@@ -383,6 +428,11 @@ class GroupedModuleGroup(LazyModuleGroup):
                 extensions_root=self._extensions_root,
                 print_result=self._print_result,
                 on_result=self._on_result,
+                on_error=self._on_error,
+                exit_codes=self._exit_codes,
+                exit=self._exit,
+                error_stream=self._error_stream,
+                extra_input=self._extra_input,
             )
             self._module_cache[cmd_name] = cmd
             return cmd
@@ -469,45 +519,14 @@ from apcore_cli.validate import (  # noqa: E402
 )
 
 
-def _emit_error_json(e: Exception, exit_code: int) -> None:
-    """Emit structured JSON error to stderr for AI agents."""
-    code = getattr(e, "code", None)
-    payload: dict[str, Any] = {
-        "error": True,
-        "code": code or "UNKNOWN",
-        "message": str(e),
-        "exit_code": exit_code,
-    }
-    for field in ("details", "suggestion", "ai_guidance", "retryable", "user_fixable"):
-        val = getattr(e, field, None)
-        if val is not None:
-            payload[field] = val
-    click.echo(json.dumps(payload, default=str), err=True)
+def _emit_error_json(e: Exception, exit_code: int, file: Any = None) -> None:
+    """Emit structured JSON error for AI agents (stderr unless overridden)."""
+    _emit_error_json_impl(e, exit_code, file)
 
 
-def _emit_error_tty(e: Exception, exit_code: int) -> None:
-    """Emit human-readable error to stderr with guidance fields."""
-    code = getattr(e, "code", None)
-    header = f"Error [{code}]: {e}" if code else f"Error: {e}"
-    click.echo(header, err=True)
-
-    details = getattr(e, "details", None)
-    if details and isinstance(details, dict):
-        click.echo("", err=True)
-        click.echo("  Details:", err=True)
-        for k, v in details.items():
-            click.echo(f"    {k}: {v}", err=True)
-
-    suggestion = getattr(e, "suggestion", None)
-    if suggestion:
-        click.echo(f"\n  Suggestion: {suggestion}", err=True)
-
-    retryable = getattr(e, "retryable", None)
-    if retryable is not None:
-        label = "Yes" if retryable else "No (same input will fail again)"
-        click.echo(f"  Retryable: {label}", err=True)
-
-    click.echo(f"\n  Exit code: {exit_code}", err=True)
+def _emit_error_tty(e: Exception, exit_code: int, file: Any = None) -> None:
+    """Emit human-readable error with guidance fields (stderr unless overridden)."""
+    _emit_error_tty_impl(e, exit_code, file)
 
 
 def _get_module_id(module_def: ModuleDescriptor) -> str:
@@ -520,7 +539,7 @@ def _get_module_id(module_def: ModuleDescriptor) -> str:
 
 def _check_sandbox_options(*, sandbox: bool, trace: bool, strategy: str | None, stream: bool, dry_run: bool) -> None:
     if sandbox and not dry_run and (trace or strategy is not None or stream):
-        raise click.UsageError("--sandbox cannot be combined with --trace, --strategy, or --stream.")
+        raise InvalidCliInputError("--sandbox cannot be combined with --trace, --stream, or --strategy.")
 
 
 def build_module_command(
@@ -532,6 +551,11 @@ def build_module_command(
     *,
     print_result: bool = True,
     on_result: Callable[[Any, str], None] | None = None,
+    on_error: Callable[[ModuleErrorContext], None] | None = None,
+    exit_codes: Mapping[str, int] | None = None,
+    exit: Callable[[int], None] | None = None,
+    error_stream: ErrorStream = None,
+    extra_input: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
 ) -> click.Command:
     """Build a Click command from an apcore module definition.
 
@@ -540,6 +564,12 @@ def build_module_command(
     execution, audit logging, and output formatting. For a successful
     non-streaming call, ``print_result`` controls stdout and ``on_result``
     receives the raw result and canonical module ID.
+
+    Embedded hosts can own the failure path with ``on_error`` (receives a
+    :class:`ModuleErrorContext`), ``exit_codes`` (apcore code -> host code),
+    ``exit`` (replace the exit action), ``error_stream`` (``"stdout"`` for
+    agent contracts), and ``extra_input`` (host-injected input merged before
+    validation).
     """
     # Resolve display overlay fields (§5.13)
     display = _get_display(module_def)
@@ -574,18 +604,38 @@ def build_module_command(
             # D10-003: translate typed circular/depth errors to the documented
             # exit 48 contract. Mirrors the schema_parser flag-collision path
             # (schema_parser.py:111) and matches Rust/TS exit codes.
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(EXIT_SCHEMA_CIRCULAR_REF)
+            handle_module_error(
+                e,
+                module_id=module_id,
+                on_error=on_error,
+                exit_codes=exit_codes,
+                exit=exit,
+                error_stream=error_stream,
+                explicit_code=EXIT_SCHEMA_CIRCULAR_REF,
+            )
         except UnresolvableRefError as e:
             # D10-003: translate unresolvable $ref errors to exit 45.
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(EXIT_SCHEMA_VALIDATION_ERROR)
+            handle_module_error(
+                e,
+                module_id=module_id,
+                on_error=on_error,
+                exit_codes=exit_codes,
+                exit=exit,
+                error_stream=error_stream,
+                explicit_code=EXIT_SCHEMA_VALIDATION_ERROR,
+            )
         except RefResolverError as e:
             # Unknown subclasses of RefResolverError fall through to the
             # generic schema-validation exit code rather than leaking a
             # traceback. Mirrors TS resolveRefs catch-all.
-            click.echo(f"Error: {e}", err=True)
-            sys.exit(EXIT_SCHEMA_VALIDATION_ERROR)
+            handle_module_error(
+                e,
+                module_id=module_id,
+                on_error=on_error,
+                exit_codes=exit_codes,
+                exit=exit,
+                error_stream=error_stream,
+            )
         except Exception as e:
             logger.warning("Failed to resolve $refs in schema for '%s', using raw schema: %s", module_id, e)
             resolved_schema = input_schema
@@ -596,7 +646,7 @@ def build_module_command(
         schema_options = schema_to_click_options(resolved_schema, max_help_length=help_text_max_length)
     except ValueError as e:
         click.echo(f"Error: Module '{module_id}' schema error: {e}", err=True)
-        sys.exit(2)
+        exit_with(2)
 
     def callback(**kwargs: Any) -> None:
         # Separate built-in options from schema-generated kwargs
@@ -613,18 +663,25 @@ def build_module_command(
         approval_timeout = kwargs.pop("approval_timeout", None) or 60
         approval_token = kwargs.pop("approval_token", None)
 
-        _check_sandbox_options(
-            sandbox=sandbox_flag, trace=trace_flag, strategy=strategy_name, stream=stream_flag, dry_run=dry_run
-        )
-
         merged: dict[str, Any] = {}
+        preflight_exit_code = None
         audit_start = time.monotonic()
         try:
+            _check_sandbox_options(
+                sandbox=sandbox_flag, trace=trace_flag, strategy=strategy_name, stream=stream_flag, dry_run=dry_run
+            )
             # 1. Collect and merge input (STDIN + CLI flags)
-            merged = collect_input(stdin_input, kwargs, large_input)
+            merged = _read_module_input(stdin_input, kwargs, large_input)
 
             # 2. Reconvert enum values to original types
             merged = reconvert_enum_values(merged, schema_options)
+
+            # 2b. Host-injected input (program-level flags, envelope fields).
+            if extra_input is not None:
+                injected = extra_input() if callable(extra_input) else extra_input
+                if not isinstance(injected, Mapping):
+                    raise InvalidCliInputError("extra_input must resolve to a mapping")
+                merged.update(dict(injected))
 
             # -- Dry-run: preflight validation only, no execution --
             if dry_run:
@@ -662,18 +719,17 @@ def build_module_command(
                             click.echo(f"  \u2713 {s:<24} (pure — would execute)", err=True)
                         else:
                             click.echo(f"  \u25cb {s:<24} (impure — skipped in dry-run)", err=True)
-                sys.exit(0 if preflight.valid else _first_failed_exit_code(preflight))
+                preflight_exit_code = 0 if preflight.valid else _first_failed_exit_code(preflight)
+                return
 
             # 3. Validate against schema (if schema has properties)
             if resolved_schema.get("properties"):
                 try:
                     jsonschema.validate(merged, resolved_schema)
                 except jsonschema.ValidationError as ve:
-                    click.echo(
-                        f"Error: Validation failed for '{ve.path}': {ve.message}.",
-                        err=True,
-                    )
-                    sys.exit(45)
+                    from apcore_cli.security.sandbox import SchemaValidationError
+
+                    raise SchemaValidationError(f"Validation failed for '{ve.path}': {ve.message}.") from ve
 
             # -- Inject approval token if provided --
             if approval_token:
@@ -862,31 +918,41 @@ def build_module_command(
 
         except KeyboardInterrupt:
             click.echo("Execution cancelled.", err=True)
-            sys.exit(130)
+            exit_with(130)
         except SystemExit:
             raise
         except Exception as e:
-            error_code = getattr(e, "code", None)
-            exit_code = _ERROR_CODE_MAP.get(error_code, 1) if isinstance(error_code, str) else 1
-
             # Audit log (error)
             audit_logger = get_audit_logger()
             if audit_logger is not None:
                 duration_ms = int((time.monotonic() - audit_start) * 1000)
-                audit_logger.log_execution(module_id, merged, "error", exit_code, duration_ms)
+                try:
+                    audit_logger.log_execution(
+                        module_id, merged, "error", resolve_exit_code(e, exit_codes), duration_ms
+                    )
+                except Exception:
+                    logger.debug("Failed to audit dispatch error for '%s'", module_id, exc_info=True)
 
-            if output_format == "json" or not sys.stderr.isatty():
-                _emit_error_json(e, exit_code)
-            else:
-                _emit_error_tty(e, exit_code)
-            sys.exit(exit_code)
+            handle_module_error(
+                e,
+                module_id=module_id,
+                output_format=output_format,
+                on_error=on_error,
+                exit_codes=exit_codes,
+                exit=exit,
+                error_stream=error_stream,
+            )
+        finally:
+            if preflight_exit_code is not None:
+                (exit or exit_with)(preflight_exit_code)
+                raise SystemExit(preflight_exit_code)
 
     # Build the command with schema-generated options + built-in options
     _epilog_parts: list[str] = []
     if not _all_options_help:
         _epilog_parts.append("Use --all-options to show all options (including built-in options).")
     if _docs_url:
-        _epilog_parts.append(f"Docs: {_docs_url}/commands/{effective_cmd_name}")
+        _epilog_parts.append(f"Docs: {_docs_url}/commands/{module_id}")
     _epilog = "\n".join(_epilog_parts) if _epilog_parts else None
     cmd = click.Command(
         name=effective_cmd_name,
@@ -1027,7 +1093,8 @@ def build_module_command(
                 f"with a reserved CLI option name. Rename the property.",
                 err=True,
             )
-            sys.exit(2)
+            (exit or exit_with)(EXIT_INVALID_INPUT)
+            raise SystemExit(EXIT_INVALID_INPUT)
 
     # Add schema-generated options
     cmd.params.extend(schema_options)
@@ -1042,18 +1109,18 @@ def validate_module_id(module_id: str) -> None:
     128 to 192 in spec 1.6.0-draft to accommodate Java/.NET deep-namespace
     FQN-derived IDs. Filesystem-safe (192 + len('.binding.yaml')=205 < 255).
     """
+    try:
+        _assert_valid_module_id(module_id)
+    except InvalidCliInputError as error:
+        click.echo(f"Error: {error}", err=True)
+        exit_with(EXIT_INVALID_INPUT)
+
+
+def _assert_valid_module_id(module_id: str) -> None:
     if len(module_id) > 192:
-        click.echo(
-            f"Error: Invalid module ID format: '{module_id}'. Maximum length is 192 characters.",
-            err=True,
-        )
-        sys.exit(2)
+        raise InvalidCliInputError(f"Invalid module ID format: '{module_id}'. Maximum length is 192 characters.")
     if not re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*", module_id):
-        click.echo(
-            f"Error: Invalid module ID format: '{module_id}'.",
-            err=True,
-        )
-        sys.exit(2)
+        raise InvalidCliInputError(f"Invalid module ID format: '{module_id}'.")
 
 
 def collect_input(
@@ -1070,60 +1137,43 @@ def collect_input(
 
     CLI flags override STDIN/file values for duplicate keys.
     """
+    try:
+        return _read_module_input(stdin_flag, cli_kwargs, large_input)
+    except InvalidCliInputError as error:
+        click.echo(f"Error: {error}", err=True)
+        exit_with(EXIT_INVALID_INPUT)
+
+
+def _read_module_input(
+    stdin_flag: str | None,
+    cli_kwargs: dict[str, Any],
+    large_input: bool = False,
+) -> dict[str, Any]:
     # Remove None values from CLI kwargs
     cli_kwargs_non_none = {k: v for k, v in cli_kwargs.items() if v is not None}
 
     if not stdin_flag:
         return cli_kwargs_non_none
 
-    if stdin_flag == "-":
-        raw = sys.stdin.read()
-        raw_size = len(raw.encode("utf-8"))
+    from_stdin = stdin_flag == "-"
+    source_label = "STDIN" if from_stdin else f"--input file '{stdin_flag}'"
+    try:
+        raw = sys.stdin.read() if from_stdin else Path(stdin_flag).read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise InvalidCliInputError(f"Could not read {source_label}: {error}.") from error
 
-        if raw_size > 10_485_760 and not large_input:
-            click.echo(
-                "Error: STDIN input exceeds 10MB limit. Use --large-input to override.",
-                err=True,
-            )
-            sys.exit(2)
-        source_label = "STDIN"
-    else:
-        # File-path form.
-        try:
-            raw = Path(stdin_flag).read_text(encoding="utf-8")
-        except FileNotFoundError:
-            click.echo(f"Error: --input file '{stdin_flag}' does not exist.", err=True)
-            sys.exit(2)
-        except OSError as e:
-            click.echo(f"Error: could not read --input file '{stdin_flag}': {e}.", err=True)
-            sys.exit(2)
-        raw_size = len(raw.encode("utf-8"))
-        if raw_size > 10_485_760 and not large_input:
-            click.echo(
-                f"Error: --input file '{stdin_flag}' exceeds 10MB limit. Use --large-input to override.",
-                err=True,
-            )
-            sys.exit(2)
-        source_label = f"--input file '{stdin_flag}'"
-
+    if len(raw.encode("utf-8")) > 10_485_760 and not large_input:
+        raise InvalidCliInputError(f"{source_label} input exceeds 10MB limit. Use --large-input to override.")
     if not raw:
-        stdin_data: dict[str, Any] = {}
-    else:
-        try:
-            stdin_data = json.loads(raw)
-        except json.JSONDecodeError as e:
-            click.echo(
-                f"Error: {source_label} does not contain valid JSON: {e.msg}.",
-                err=True,
-            )
-            sys.exit(2)
+        return cli_kwargs_non_none
 
-        if not isinstance(stdin_data, dict):
-            click.echo(
-                f"Error: {source_label} JSON must be an object, got {type(stdin_data).__name__}.",
-                err=True,
-            )
-            sys.exit(2)
+    try:
+        stdin_data = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise InvalidCliInputError(f"{source_label} does not contain valid JSON: {error.msg}.") from error
+
+    if not isinstance(stdin_data, dict):
+        raise InvalidCliInputError(f"{source_label} JSON must be an object, got {type(stdin_data).__name__}.")
 
     # CLI flags override STDIN/file for duplicate keys
     return {**stdin_data, **cli_kwargs_non_none}

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class ModuleExecutionError(Exception):
     """Raised when a sandboxed module execution fails."""
 
-    pass
+    code = "MODULE_EXECUTE_ERROR"
 
 
 class ModuleNotFoundError(Exception):  # noqa: A001 — intentional shadow of builtin
@@ -35,7 +35,7 @@ class ModuleNotFoundError(Exception):  # noqa: A001 — intentional shadow of bu
     :class:`builtins.ModuleNotFoundError`.
     """
 
-    pass
+    code = "MODULE_NOT_FOUND"
 
 
 # Deprecated alias kept for backward compat — prefer ModuleNotFoundError.
@@ -57,7 +57,7 @@ class SchemaValidationError(Exception):
     ``RefResolverError::Unresolvable``.
     """
 
-    pass
+    code = "SCHEMA_VALIDATION_ERROR"
 
 
 # Env forwarding strategy (mirrors Rust spec §4.4 and apcore-cli/docs/features/security.md):

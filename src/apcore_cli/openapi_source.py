@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import json
 import logging
-import sys
 from dataclasses import dataclass
 from typing import Any, NoReturn
 
 import click
+
+from apcore_cli.exit import exit_with
 
 logger = logging.getLogger("apcore_cli.openapi")
 
@@ -82,7 +83,7 @@ def parse_headers(headers: list[str] | tuple[str, ...] | None) -> dict[str, str]
                 f"Error: Invalid --header value {raw!r}: expected 'Key: Value'.",
                 err=True,
             )
-            sys.exit(EXIT_INVALID_INPUT)
+            exit_with(EXIT_INVALID_INPUT)
         key, _, value = raw.partition(":")
         key = key.strip()
         if not key:
@@ -90,14 +91,14 @@ def parse_headers(headers: list[str] | tuple[str, ...] | None) -> dict[str, str]
                 f"Error: Invalid --header value {raw!r}: header name is empty.",
                 err=True,
             )
-            sys.exit(EXIT_INVALID_INPUT)
+            exit_with(EXIT_INVALID_INPUT)
         parsed[key] = value.strip()
     return parsed
 
 
 def _fail(message: str) -> NoReturn:
     click.echo(f"Error: {message}", err=True)
-    sys.exit(EXIT_SOURCE_ERROR)
+    exit_with(EXIT_SOURCE_ERROR)
 
 
 def load_openapi_source(

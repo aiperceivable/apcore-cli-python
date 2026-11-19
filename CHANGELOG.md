@@ -5,6 +5,39 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-11-19
+
+### Added
+
+- Embedded hosts can observe and translate failures: `build_module_command()`,
+  `create_cli()` and `register_exec_command()` accept
+  `on_error(ModuleErrorContext)`, `exit_codes` (apcore code -> host code),
+  `exit` (replace the exit action), and `error_stream` (`"stdout"` for agent
+  contracts that require the failure document on stdout; defaults to stderr).
+- `extra_input` merges host-injected values (for example a program-level
+  `--json` flag) into module input before validation, instead of forcing hosts
+  to wrap `execute` and merge afterwards.
+- `set_exit_handler()` / `exit_with()` make every library-side exit go through
+  one handler. The default raises `SystemExit`. An embedded host can install
+  a handler that raises its own error or maps the code.
+
+### Fixed
+
+- Invalid module IDs, missing modules, invalid input (including files and
+  stdin), and incompatible dispatch flags use the same error callback, output
+  destination, and exit mapping as execution failures. A custom exit exception
+  unwinds after a single callback and error envelope.
+- `set_docs_url()` strips trailing slashes, so help output no longer emits
+  `//commands/...`. The link is built from the canonical module path rather
+  than the leaf command name, so a module nested under a group
+  (`series.asset.add` -> `add`) keeps its full path.
+
+### Changed
+
+- Library code no longer calls `sys.exit()` directly; `collect_input()`,
+  `create_cli()`, the module commands, the built-in commands and the ACL loader
+  route through `exit_with()`.
+
 ## [0.13.0] - 2026-11-10
 
 ### Added

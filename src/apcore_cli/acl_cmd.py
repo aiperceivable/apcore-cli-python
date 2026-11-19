@@ -14,7 +14,6 @@ Mirrors ``src/acl-cmd.ts`` (TypeScript) and ``src/acl_cmd.rs`` (Rust).
 from __future__ import annotations
 
 import json
-import sys
 from typing import Any
 
 import click
@@ -23,6 +22,7 @@ from rich.console import Console
 from rich.table import Table
 
 from apcore_cli.acl_loader import build_context, get_cli_identity, merge_identity
+from apcore_cli.exit import exit_with
 
 # Exit codes (FE-14 §6). 47 is a *configuration* fault; 77 is an actual
 # access decision. Conflating them would make a broken ACL file read as a
@@ -135,7 +135,7 @@ def register_acl_command(
                         allow_unicode=True,
                     ).rstrip()
                 )
-            sys.exit(EXIT_OK)
+            exit_with(EXIT_OK)
 
         rows = _rule_rows(acl)
         payload = {
@@ -180,7 +180,7 @@ def register_acl_command(
                     _truncate(str(row["description"])),
                 )
             Console().print(table)
-        sys.exit(EXIT_OK)
+        exit_with(EXIT_OK)
 
     # -- check --------------------------------------------------------------
 
@@ -258,7 +258,7 @@ def register_acl_command(
         """
         if acl is None:
             click.echo(f"Error: {_NO_ACL_MESSAGE}", err=True)
-            sys.exit(EXIT_ACL_CONFIG)
+            exit_with(EXIT_ACL_CONFIG)
 
         arguments: dict[str, Any] | None = None
         if input_json is not None:
@@ -266,10 +266,10 @@ def register_acl_command(
                 parsed = json.loads(input_json)
             except json.JSONDecodeError as exc:
                 click.echo(f"Error: --input is not valid JSON: {exc}", err=True)
-                sys.exit(EXIT_INVALID_INPUT)
+                exit_with(EXIT_INVALID_INPUT)
             if not isinstance(parsed, dict):
                 click.echo("Error: --input JSON must be an object.", err=True)
-                sys.exit(EXIT_INVALID_INPUT)
+                exit_with(EXIT_INVALID_INPUT)
             arguments = parsed
 
         # §4.5 precedence: a restated flag overrides its root counterpart for
@@ -319,8 +319,8 @@ def register_acl_command(
 
         if decision.access == "deny":
             click.echo(f"Access denied: {caller} -> {target}", err=True)
-            sys.exit(EXIT_ACL_DENIED)
-        sys.exit(EXIT_OK)
+            exit_with(EXIT_ACL_DENIED)
+        exit_with(EXIT_OK)
 
     # -- validate -----------------------------------------------------------
 
@@ -342,7 +342,7 @@ def register_acl_command(
         """
         if acl is None:
             click.echo(f"Error: {_NO_ACL_MESSAGE}", err=True)
-            sys.exit(EXIT_ACL_CONFIG)
+            exit_with(EXIT_ACL_CONFIG)
 
         findings = acl.validate_rules()
         rows = [
@@ -390,7 +390,7 @@ def register_acl_command(
                     "every call it matches."
                 )
 
-        sys.exit(EXIT_ACL_CONFIG if rows else EXIT_OK)
+        exit_with(EXIT_ACL_CONFIG if rows else EXIT_OK)
 
     # -- status -------------------------------------------------------------
 
@@ -421,13 +421,13 @@ def register_acl_command(
                 "Error: Executor does not expose governance_state(); cannot report ACL status.",
                 err=True,
             )
-            sys.exit(EXIT_ACL_CONFIG)
+            exit_with(EXIT_ACL_CONFIG)
 
         try:
             state = executor.governance_state()
         except Exception as exc:  # pragma: no cover - defensive
             click.echo(f"Error: Failed to read governance state: {exc}", err=True)
-            sys.exit(EXIT_ACL_CONFIG)
+            exit_with(EXIT_ACL_CONFIG)
 
         values = {field: bool(getattr(state, field, False)) for field, _ in _GOVERNANCE_ROWS}
         unprotected = bool(getattr(state, "unprotected_control_surface", False))
@@ -449,8 +449,8 @@ def register_acl_command(
 
         if strict and unprotected:
             click.echo("Unprotected control surface.", err=True)
-            sys.exit(EXIT_ACL_CONFIG)
-        sys.exit(EXIT_OK)
+            exit_with(EXIT_ACL_CONFIG)
+        exit_with(EXIT_OK)
 
     _ = (acl_list, acl_check, acl_validate, acl_status)
 

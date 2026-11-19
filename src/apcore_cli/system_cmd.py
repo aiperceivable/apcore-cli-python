@@ -23,6 +23,7 @@ import click
 
 import apcore_cli.cli as _cli_module
 from apcore_cli.approval import check_approval
+from apcore_cli.exit import exit_with
 from apcore_cli.exit_codes import exit_code_for_error
 from apcore_cli.output import format_exec_result, resolve_format
 
@@ -44,14 +45,14 @@ def _exit_on_system_error(e: Exception) -> NoReturn:
     and TS ``exitCodeForError``.
     """
     click.echo(f"Error: {e}", err=True)
-    sys.exit(exit_code_for_error(e))
+    exit_with(exit_code_for_error(e))
 
 
 def _check_system_approval(executor: Any, module_id: str, auto_approve: bool) -> None:
     """Check approval for system commands that have requires_approval=True."""
     module_def = _try_get_module_def(executor, module_id)
     if module_def is not None:
-        # Let check_approval's own exits (sys.exit(46), ApprovalDeniedError, etc.)
+        # Let check_approval's own exits (exit_with(46), ApprovalDeniedError, etc.)
         # propagate to the caller — only the registry-lookup step is guarded above.
         check_approval(module_def, auto_approve)
 

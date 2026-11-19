@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from apcore_cli.exit import exit_with
 from apcore_cli.security.audit import get_audit_logger
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -489,7 +489,7 @@ def enforce_acl_for_unguarded_path(
         import click
 
         click.echo(f"Error: Permission denied for module '{module_id}'.", err=True)
-        sys.exit(EXIT_ACL_DENIED)
+        exit_with(EXIT_ACL_DENIED)
     return bool(decision.approval_required)
 
 

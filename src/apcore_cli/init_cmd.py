@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import click
+
+from apcore_cli.exit import exit_with
 
 # Templates emit `# TODO: implement` placeholders into the GENERATED user
 # module. These are user-facing scaffolding — not SDK source-level TODOs —
@@ -83,7 +84,7 @@ def register_init_command(cli: click.Group) -> None:
         """
         if output_dir is not None and ".." in Path(output_dir).parts:
             click.echo("Error: Output directory must not contain '..' path components.", err=True)
-            sys.exit(2)
+            exit_with(2)
 
         # Parse module_id into parts
         parts = module_id.rsplit(".", 1)

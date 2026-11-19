@@ -17,8 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import click
@@ -26,13 +25,16 @@ import click
 import apcore_cli.cli as _cli_module
 from apcore_cli.acl_loader import cli_context, enforce_acl_for_unguarded_path
 from apcore_cli.cli import (
+    _assert_valid_module_id,
     _check_sandbox_options,
     _first_failed_exit_code,
+    _read_module_input,
     collect_input,
     format_preflight_result,
     validate_module_id,
 )
 from apcore_cli.display_helpers import get_cli_display_fields
+from apcore_cli.exit import exit_with
 from apcore_cli.output import (
     format_exec_result,
     format_grouped_module_list,
@@ -66,7 +68,7 @@ def _validate_tag(tag: str) -> None:
             f"Error: Invalid tag format: '{tag}'. Tags must match [a-z][a-z0-9_-]*.",
             err=True,
         )
-        sys.exit(2)
+        exit_with(2)
 
 
 def _resolve_group_for_display(descriptor: Any) -> tuple[str | None, str]:
@@ -289,7 +291,7 @@ def register_describe_command(apcli_group: click.Group, registry: Any) -> None:
         module_def = registry.get_definition(module_id)
         if module_def is None:
             click.echo(f"Error: Module '{module_id}' not found.", err=True)
-            sys.exit(44)
+            exit_with(44)
 
         fmt = resolve_format(output_format)
         format_module_detail(module_def, fmt)
@@ -304,6 +306,11 @@ def register_exec_command(
     *,
     print_result: bool = True,
     on_result: Callable[[Any, str], None] | None = None,
+    on_error: Callable[[Any], None] | None = None,
+    exit_codes: Mapping[str, int] | None = None,
+    exit: Callable[[int], None] | None = None,
+    error_stream: Any = None,
+    extra_input: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None,
 ) -> None:
     """Register the generic ``exec`` subcommand on the apcli group (FE-13).
 
@@ -313,8 +320,7 @@ def register_exec_command(
     are passed as a JSON object via ``--input``.
     """
     from apcore_cli.approval import check_approval
-    from apcore_cli.cli import _emit_error_tty
-    from apcore_cli.exit_codes import exit_code_for_error
+    from apcore_cli.module_errors import InvalidCliInputError, handle_module_error, resolve_exit_code
 
     @apcli_group.command("exec")
     @click.argument("module_id")
@@ -363,35 +369,37 @@ def register_exec_command(
         stream: bool,
     ) -> None:
         """Execute a module by ID with JSON input."""
-        _check_sandbox_options(sandbox=sandbox, trace=trace, strategy=strategy, stream=stream, dry_run=dry_run)
-        validate_module_id(module_id)
-
-        module_def = registry.get_definition(module_id)
-        if module_def is None:
-            click.echo(f"Error: Module '{module_id}' not found.", err=True)
-            sys.exit(44)
-
-        # Distinguish stdin marker from inline JSON literal.
-        merged: dict[str, Any] = {}
-        if stdin_input == "-":
-            merged = collect_input("-", {}, False)
-        elif stdin_input is not None:
-            try:
-                parsed = json.loads(stdin_input)
-            except json.JSONDecodeError as e:
-                click.echo(f"Error: --input is not valid JSON: {e}", err=True)
-                sys.exit(2)
-            if not isinstance(parsed, dict):
-                click.echo("Error: --input JSON must be an object.", err=True)
-                sys.exit(2)
-            merged = parsed
-
         import time
 
-        from apcore_cli.security.sandbox import Sandbox
+        from apcore_cli.security.sandbox import ModuleNotFoundError, Sandbox
 
+        merged: dict[str, Any] = {}
         audit_start = time.monotonic()
         try:
+            _check_sandbox_options(sandbox=sandbox, trace=trace, strategy=strategy, stream=stream, dry_run=dry_run)
+            _assert_valid_module_id(module_id)
+
+            module_def = registry.get_definition(module_id)
+            if module_def is None:
+                raise ModuleNotFoundError(f"Module '{module_id}' not found.")
+
+            if stdin_input == "-":
+                merged = _read_module_input("-", {})
+            elif stdin_input is not None:
+                try:
+                    parsed = json.loads(stdin_input)
+                except json.JSONDecodeError as error:
+                    raise InvalidCliInputError(f"--input is not valid JSON: {error}") from error
+                if not isinstance(parsed, dict):
+                    raise InvalidCliInputError("--input JSON must be an object.")
+                merged = parsed
+
+            if extra_input is not None:
+                injected = extra_input() if callable(extra_input) else extra_input
+                if not isinstance(injected, Mapping):
+                    raise InvalidCliInputError("extra_input must resolve to a mapping")
+                merged.update(injected)
+
             # §4.10: `--sandbox` runs in a subprocess that never sees the
             # attached ACL, so the access decision is reached here, in the
             # parent, before the spawn — and its `approval: required` is
@@ -452,19 +460,22 @@ def register_exec_command(
             if _al is not None:
                 _al.log_execution(module_id, merged, "success", 0, duration_ms)
         except Exception as e:
-            # Cross-SDK parity (audit D11-B-002 sibling): resolve via the full
-            # error->exit-code mapping, not just the narrow apcore wire-code
-            # table. `exit_code_for_error` also matches on the CLI's own
-            # exception CLASSES (ApprovalDeniedError, AuthenticationError,
-            # ConfigDecryptionError, ...) which never carry a `.code`
-            # attribute and would otherwise fall through to exit 1.
-            exit_code = exit_code_for_error(e)
             duration_ms = int((time.monotonic() - audit_start) * 1000)
             _al = _cli_module.get_audit_logger()
             if _al is not None:
-                _al.log_execution(module_id, merged, "error", exit_code, duration_ms)
-            _emit_error_tty(e, exit_code)
-            sys.exit(exit_code)
+                try:
+                    _al.log_execution(module_id, merged, "error", resolve_exit_code(e, exit_codes), duration_ms)
+                except Exception:
+                    logger.debug("Failed to audit dispatch error for '%s'", module_id, exc_info=True)
+            handle_module_error(
+                e,
+                module_id=module_id,
+                output_format=output_format,
+                on_error=on_error,
+                exit_codes=exit_codes,
+                exit=exit,
+                error_stream=error_stream,
+            )
 
     _ = exec_cmd
 
@@ -491,7 +502,7 @@ def register_validate_command(apcli_group: click.Group, registry: Any, executor:
         module_def = registry.get_definition(module_id)
         if module_def is None:
             click.echo(f"Error: Module '{module_id}' not found.", err=True)
-            sys.exit(44)
+            exit_with(44)
 
         merged = collect_input(stdin_input, {}, False) if stdin_input else {}
         try:
@@ -508,8 +519,8 @@ def register_validate_command(apcli_group: click.Group, registry: Any, executor:
             if _al is not None:
                 _al.log_execution(module_id, merged, "error", exit_code, 0)
             _emit_error_tty(e, exit_code)
-            sys.exit(exit_code)
-        sys.exit(0 if preflight.valid else _first_failed_exit_code(preflight))
+            exit_with(exit_code)
+        exit_with(0 if preflight.valid else _first_failed_exit_code(preflight))
 
     _ = validate_cmd
 

@@ -13,6 +13,8 @@ from importlib.metadata import version as _get_version
 
 import click
 
+from apcore_cli.exit import exit_with
+
 try:
     __version__ = _get_version("apcore-cli")
 except PackageNotFoundError:
@@ -570,7 +572,7 @@ def configure_man_help(
     if "--man" in args and ("--help" in args or "-h" in args):
         roff = build_program_man_page(cli, prog_name, version, description, docs_url)
         _render_man_page(roff)
-        sys.exit(0)
+        exit_with(0)
 
 
 def register_completion_command(apcli_group: click.Group, prog_name: str = "apcore-cli") -> None:

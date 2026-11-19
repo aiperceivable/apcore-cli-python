@@ -44,6 +44,13 @@ from apcore_cli.discovery import (
     register_list_command,
     register_validate_command,
 )
+from apcore_cli.exit import (
+    ExitHandler,
+    exit_with,
+    get_exit_handler,
+    reset_exit_handler,
+    set_exit_handler,
+)
 from apcore_cli.exit_codes import (
     EXIT_ACL_DENIED,
     EXIT_APPROVAL_DENIED,
@@ -73,6 +80,7 @@ from apcore_cli.exit_codes import (
 from apcore_cli.exposure import ExposureFilter
 from apcore_cli.factory import create_cli
 from apcore_cli.init_cmd import register_init_command
+from apcore_cli.module_errors import ModuleErrorContext
 from apcore_cli.output import (
     format_exec_result,
     format_module_detail,
@@ -147,6 +155,12 @@ __all__ = [
     "Sandbox",
     # Core dispatcher (parity with TS/Rust embedder API).
     "build_module_command",
+    "set_exit_handler",
+    "get_exit_handler",
+    "reset_exit_handler",
+    "exit_with",
+    "ExitHandler",
+    "ModuleErrorContext",
     "collect_input",
     "validate_module_id",
     "set_all_options_help",

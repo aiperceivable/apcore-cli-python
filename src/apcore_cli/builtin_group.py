@@ -21,6 +21,8 @@ import re
 import sys
 from typing import Any, Literal, TypedDict
 
+from apcore_cli.exit import exit_with
+
 logger = logging.getLogger("apcore_cli.builtin_group")
 
 # ---------------------------------------------------------------------------
@@ -302,10 +304,10 @@ class ApcliGroup:
                 f"Error: apcli.mode must be a string; got {type(raw_mode).__name__}. "
                 "Expected one of all|none|include|exclude.\n"
             )
-            sys.exit(_EXIT_INVALID_CLI_INPUT)
+            exit_with(_EXIT_INVALID_CLI_INPUT)
         elif raw_mode not in _VALID_USER_MODES:
             sys.stderr.write(f"Error: Invalid apcli mode: '{raw_mode}'. Must be one of: all, none, include, exclude.\n")
-            sys.exit(_EXIT_INVALID_CLI_INPUT)
+            exit_with(_EXIT_INVALID_CLI_INPUT)
         else:
             mode = raw_mode  # type: ignore[assignment]
 
