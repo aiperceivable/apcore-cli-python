@@ -4,8 +4,8 @@ The CLI is an adapter, not a second implementation: document fetching and
 parsing are ``apcore_toolkit.load_spec``'s job and module-ID derivation is
 ``OpenAPIScanner``'s. What lives here is the CLI-side error surface (a
 readable message and exit ``47`` for every way a source can fail) and the one
-piece of analysis the toolkit cannot do — proxy-hazard detection, which needs
-the *raw* document.
+legacy diagnostics that read the raw document. The toolkit supplies
+effective diagnostics for the scanned input metadata.
 
 Mirrors ``src/openapi-source.ts`` (TypeScript) and ``src/openapi_source.rs``
 (Rust).
@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any, NoReturn
 
 import click
+from apcore_toolkit import EffectiveProxyHazard, detect_effective_proxy_hazards
 
 from apcore_cli.exit import exit_with
 
@@ -273,4 +274,11 @@ def detect_proxy_hazards(spec: dict[str, Any], modules: list[Any]) -> list[Hazar
     return hazards
 
 
-__all__ = ["Hazard", "detect_proxy_hazards", "load_openapi_source", "parse_headers"]
+__all__ = [
+    "EffectiveProxyHazard",
+    "Hazard",
+    "detect_effective_proxy_hazards",
+    "detect_proxy_hazards",
+    "load_openapi_source",
+    "parse_headers",
+]

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "apcore-cli"
-version = "0.14.0"
+version = "0.14.1"
 description = "Terminal adapter for apcore — execute AI-Perceivable modules from the command line"
 readme = "README.md"
 license = "Apache-2.0"
@@ -27,7 +27,7 @@ classifiers = [
 ]
 dependencies = [
     "apcore>=0.33.0",
-    "apcore-toolkit[http-proxy]>=0.14.2",
+    "apcore-toolkit[http-proxy]>=0.15.0",
     "click>=8.1",
     "jsonschema>=4.20",
     "rich>=13.0",

@@ -5,6 +5,21 @@ All notable changes to apcore-cli (Python SDK) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-11-20
+
+### Added
+
+- `apcore_cli.openapi_source.detect_effective_proxy_hazards()` checks selected
+  modules produced by toolkit's opt-in `scan_with_effective_parameters()`.
+  It reports forwarding mismatches and names shared across path, query, and
+  JSON body inputs using the same normalized parameters as the tool schema.
+  It is re-exported from toolkit to keep one implementation across adapters.
+
+### Changed
+
+- `apcli openapi scan` and `generate` use effective OpenAPI parameters. JSON and YAML scan output add
+  `effective_hazards` alongside the legacy `hazards` field.
+
 ## [0.14.0] - 2026-11-19
 
 ### Added

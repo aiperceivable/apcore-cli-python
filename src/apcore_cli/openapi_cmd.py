@@ -29,7 +29,13 @@ from pathlib import Path
 from typing import Any
 
 import click
-from apcore_toolkit import format_csv, format_jsonl, format_modules
+from apcore_toolkit import (
+    EffectiveProxyHazard,
+    detect_effective_proxy_hazards,
+    format_csv,
+    format_jsonl,
+    format_modules,
+)
 from rich.console import Console
 from rich.table import Table
 
@@ -112,7 +118,7 @@ def _scan_or_exit(
     prefix: str | None,
     no_deprecated: bool,
 ) -> list[Any]:
-    """Run ``OpenAPIScanner().scan`` and surface a version fault at exit 47.
+    """Run the effective OpenAPI scan and surface a version fault at exit 47.
 
     The toolkit's message is reproduced verbatim — it already names the
     offending ``openapi`` value and states that Swagger 2.0 is unsupported.
@@ -120,7 +126,7 @@ def _scan_or_exit(
     from apcore_toolkit import OpenAPIScanner
 
     try:
-        return OpenAPIScanner().scan(
+        return OpenAPIScanner().scan_with_effective_parameters(
             spec,
             include=include,
             exclude=exclude,
@@ -188,9 +194,18 @@ def _echo_hazards(hazards: list[Any]) -> None:
         click.echo(f"  {hazard.module_id:<22} {hazard.describe()}")
 
 
+def _echo_effective_hazards(hazards: list[EffectiveProxyHazard], *, err: bool = False) -> None:
+    if not hazards:
+        return
+    click.echo("\nEffective proxy diagnostics:", err=err)
+    for hazard in hazards:
+        click.echo(f"  {hazard.describe()}", err=err)
+
+
 def _render_scan(
     modules: list[Any],
     hazards: list[Any],
+    effective_hazards: list[EffectiveProxyHazard],
     spec: dict[str, Any],
     source: str,
     output_format: str,
@@ -202,6 +217,7 @@ def _render_scan(
         # format_modules already accepts. The `_descriptor_to_scanned` bridge
         # the formatter uses for registry descriptors is simply not needed.
         click.echo(format_modules(modules, style=output_format, display=True))
+        _echo_effective_hazards(effective_hazards, err=True)
         return
 
     if output_format == "json":
@@ -215,6 +231,7 @@ def _render_scan(
                     # module's `warnings` array: they are a statement about a
                     # *future* execution path, not about the scan that ran.
                     "hazards": [hazard.to_dict() for hazard in hazards],
+                    "effective_hazards": [hazard.to_dict() for hazard in effective_hazards],
                 },
                 indent=2,
                 default=str,
@@ -232,6 +249,7 @@ def _render_scan(
                     "openapi_version": spec.get("openapi"),
                     "modules": rows,
                     "hazards": [hazard.to_dict() for hazard in hazards],
+                    "effective_hazards": [hazard.to_dict() for hazard in effective_hazards],
                 },
                 default_flow_style=False,
                 allow_unicode=True,
@@ -242,11 +260,13 @@ def _render_scan(
     if output_format == "csv":
         if rows:
             click.echo(format_csv(rows).rstrip())
+        _echo_effective_hazards(effective_hazards, err=True)
         return
 
     if output_format == "jsonl":
         if rows:
             click.echo(format_jsonl(rows).rstrip())
+        _echo_effective_hazards(effective_hazards, err=True)
         return
 
     # table
@@ -263,6 +283,7 @@ def _render_scan(
         Console().print(table)
     _echo_warnings(rows)
     _echo_hazards(hazards)
+    _echo_effective_hazards(effective_hazards)
 
 
 def _sanitize_for_filename(module_id: str) -> str:
@@ -360,7 +381,8 @@ def register_openapi_command(apcli_group: click.Group) -> None:
         spec = load_openapi_source(source, headers=list(headers), timeout=timeout)
         modules = _scan_or_exit(spec, include=include, exclude=exclude, prefix=prefix, no_deprecated=no_deprecated)
         hazards = detect_proxy_hazards(spec, modules)
-        _render_scan(modules, hazards, spec, source, output_format)
+        effective_hazards = detect_effective_proxy_hazards(modules)
+        _render_scan(modules, hazards, effective_hazards, spec, source, output_format)
         exit_with(EXIT_OK)
 
     # -- generate -----------------------------------------------------------
@@ -419,6 +441,7 @@ def register_openapi_command(apcli_group: click.Group) -> None:
         spec = load_openapi_source(source, headers=list(headers), timeout=timeout)
         modules = _scan_or_exit(spec, include=include, exclude=exclude, prefix=prefix, no_deprecated=no_deprecated)
         hazards = detect_proxy_hazards(spec, modules)
+        effective_hazards = detect_effective_proxy_hazards(modules)
 
         out_path = Path(output_dir)
         planned = _planned_output_paths(modules, out_path)
@@ -451,6 +474,7 @@ def register_openapi_command(apcli_group: click.Group) -> None:
                 + (f" {len(skipped_paths)} skipped." if skipped_paths else "")
             )
             _echo_hazards(hazards)
+            _echo_effective_hazards(effective_hazards, err=True)
             exit_with(EXIT_OK)
 
         results: list[Any] = []
@@ -488,6 +512,7 @@ def register_openapi_command(apcli_group: click.Group) -> None:
             + (f" {len(failures)} failed." if failures else "")
         )
         _echo_hazards(hazards)
+        _echo_effective_hazards(effective_hazards, err=True)
         # A write the user asked for and did not get is a real fault, unlike
         # a skipped file (the documented non-destructive default) — mirrors
         # TypeScript's exit on `results.filter(r => r.verificationError !== null)`.

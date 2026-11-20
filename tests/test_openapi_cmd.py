@@ -232,7 +232,8 @@ class TestOpenapiScan:
         path.write_text(json.dumps(doc), encoding="utf-8")
         payload = _scan_json(cli, str(path))
         warnings = payload["modules"][0]["warnings"]
-        assert any("external $ref not fetched" in w and "./common.yaml#/Error" in w for w in warnings)
+        assert any("external $ref not fetched: <external-ref>" in w for w in warnings)
+        assert all("./common.yaml" not in w for w in warnings)
 
         table = CliRunner().invoke(cli, ["openapi", "scan", str(path)])
         assert "external $ref not fetched" in table.output
@@ -285,6 +286,38 @@ class TestOpenapiScan:
     def test_hazards_do_not_change_the_exit_code(self, cli, petstore):
         """A partially-understood document is still a successful scan."""
         assert CliRunner().invoke(cli, ["openapi", "scan", petstore]).exit_code == 0
+
+    def test_scan_and_generate_adopt_effective_parameters(self, cli, tmp_path):
+        doc = yaml.safe_load(_PETSTORE)
+        doc["paths"]["/pets"]["parameters"] = [
+            {"name": "preview", "in": "query", "schema": {"type": "boolean"}},
+        ]
+        source = tmp_path / "effective.json"
+        source.write_text(json.dumps(doc), encoding="utf-8")
+        output = _scan_json(cli, str(source), "--include", "^create_pets$")
+        assert [hazard["parameters"] for hazard in output["hazards"]] == [["dryRun"]]
+        assert output["effective_hazards"] == [
+            {
+                "module_id": "create_pets",
+                "http_method": "POST",
+                "url_path": "/pets",
+                "kind": {"code": "query_on_body_method", "parameters": ["preview", "dryRun"]},
+            }
+        ]
+        yaml_result = CliRunner().invoke(
+            cli, ["openapi", "scan", str(source), "--include", "^create_pets$", "--format", "yaml"]
+        )
+        assert yaml_result.exit_code == 0, yaml_result.output
+        assert yaml.safe_load(yaml_result.output)["effective_hazards"] == output["effective_hazards"]
+        assert _scan_json(cli, str(source), "--include", "^list_pets$")["effective_hazards"] == []
+
+        out = tmp_path / "generated"
+        generated = CliRunner().invoke(
+            cli, ["openapi", "generate", str(source), "--include", "^create_pets$", "-o", str(out)]
+        )
+        assert generated.exit_code == 0, generated.output
+        assert "preview" in generated.output
+        assert "preview:" in (out / "create_pets.binding.yaml").read_text(encoding="utf-8")
 
     def test_illegal_id_warning_is_rendered_verbatim(self, cli, tmp_path):
         """T-OAPI-28: a segment beginning with a digit is not repaired by the
@@ -664,3 +697,36 @@ class TestRegistration:
         assert "openapi" in APCLI_SUBCOMMAND_NAMES
         assert "acl" in APCLI_SUBCOMMAND_NAMES
         assert len(APCLI_SUBCOMMAND_NAMES) == 15
+
+
+@pytest.mark.parametrize("style", ["csv", "jsonl", "markdown", "skill"])
+def test_alternate_scan_styles_report_effective_hazards_on_stderr(cli, tmp_path, style):
+    document = yaml.safe_load(_PETSTORE)
+    document["paths"]["/pets"]["parameters"] = [{"name": "preview", "in": "query", "schema": {"type": "boolean"}}]
+    source = tmp_path / "alternate.json"
+    source.write_text(json.dumps(document), encoding="utf-8")
+    result = CliRunner().invoke(cli, ["openapi", "scan", str(source), "--include", "^create_pets$", "--format", style])
+    assert result.exit_code == 0, result.output
+    assert "preview" in result.stderr
+    assert "Effective proxy diagnostics" not in result.stdout
+    assert "create_pets" in result.stdout
+
+
+def test_external_reference_is_redacted_in_scan_and_binding(cli, tmp_path):
+    document = yaml.safe_load(_PETSTORE)
+    external = "https://example.invalid/parameters.yaml?fixture_marker=not_a_secret"
+    document["paths"]["/pets"]["get"]["parameters"] = [{"$ref": external}]
+    source = tmp_path / "redacted.json"
+    source.write_text(json.dumps(document), encoding="utf-8")
+    payload = _scan_json(cli, str(source), "--include", "^list_pets$")
+    assert "not_a_secret" not in json.dumps(payload)
+    [hazard] = payload["effective_hazards"]
+    assert hazard["kind"]["problem"]["reference"] == "<external-ref>"
+
+    out = tmp_path / "generated"
+    result = CliRunner().invoke(cli, ["openapi", "generate", str(source), "--include", "^list_pets$", "-o", str(out)])
+    assert result.exit_code == 0, result.output
+    assert "not_a_secret" not in result.output
+    binding = (out / "list_pets.binding.yaml").read_text(encoding="utf-8")
+    assert "not_a_secret" not in binding
+    assert "<external-ref>" in binding
